@@ -2,6 +2,15 @@
 
 namespace Sevaske\Zatca;
 
+use GuzzleHttp\Client;
+use Illuminate\Support\Facades\Http;
+use Sevaske\Zatca\Contracts\ZatcaFilesContract;
+use Sevaske\Zatca\Files\ZatcaComplianceCredentials;
+use Sevaske\Zatca\Files\ZatcaCsr;
+use Sevaske\Zatca\Files\ZatcaPrivateKey;
+use Sevaske\Zatca\Files\ZatcaProductionCredentials;
+use Sevaske\ZatcaApi\Api;
+use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -17,5 +26,39 @@ class ZatcaServiceProvider extends PackageServiceProvider
         $package
             ->name('zatca')
             ->hasConfigFile();
+    }
+
+    public function registeringPackage(): void
+    {
+        // files
+        $this->app->bind(ZatcaFilesContract::class, fn () => new ZatcaFiles(
+            new ZatcaCsr,
+            new ZatcaPrivateKey,
+            new ZatcaComplianceCredentials,
+            new ZatcaProductionCredentials,
+        ));
+
+        // api http client
+        $this->app->singleton(Api::class, function () {
+            $env = ZatcaEnvironmentEnum::from(config('zatca.env'));
+
+            return new Api($env->value, new Client([
+                'base_uri' => $env->url(),
+                'timeout' => 60,
+                'verify' => true,
+            ]));
+        });
+
+        // main class
+        $this->app->singleton(Zatca::class, function () {
+            return new Zatca(app(Api::class), app(ZatcaFilesContract::class));
+        });
+    }
+
+    public function packageBooted(): void
+    {
+        Http::macro('zatca', function () {
+            return app(Api::class);
+        });
     }
 }
