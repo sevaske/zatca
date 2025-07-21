@@ -31,8 +31,6 @@ abstract class ZatcaFile implements ZatcaFileContract
 
     /**
      * Get the absolute filesystem path to the file.
-     *
-     * @return string
      */
     public function fullPath(): string
     {
@@ -41,8 +39,6 @@ abstract class ZatcaFile implements ZatcaFileContract
 
     /**
      * Get the file contents, or null if the file does not exist.
-     *
-     * @return string|null
      */
     public function get(): ?string
     {
@@ -51,8 +47,6 @@ abstract class ZatcaFile implements ZatcaFileContract
 
     /**
      * Determine whether the file exists.
-     *
-     * @return bool
      */
     public function exists(): bool
     {
@@ -61,9 +55,6 @@ abstract class ZatcaFile implements ZatcaFileContract
 
     /**
      * Write contents to the file.
-     *
-     * @param string $contents
-     * @return bool
      */
     public function put(string $contents): bool
     {
@@ -72,15 +63,11 @@ abstract class ZatcaFile implements ZatcaFileContract
 
     /**
      * Get the relative path to the file on the disk.
-     *
-     * @return string
      */
     abstract public function path(): string;
 
     /**
      * Get the name of the Laravel filesystem disk.
-     *
-     * @return string
      */
     abstract public function diskName(): string;
 }

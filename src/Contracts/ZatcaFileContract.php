@@ -2,7 +2,6 @@
 
 namespace Sevaske\Zatca\Contracts;
 
-
 interface ZatcaFileContract
 {
     public function get(): ?string;
