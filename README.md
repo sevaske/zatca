@@ -1,150 +1,109 @@
-# Zatca. Laravel package.
+# Zatca – Laravel Integration for ZATCA e-Invoicing
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/sevaske/zatca.svg?style=flat-square)](https://packagist.org/packages/sevaske/zatca)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/sevaske/zatca/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/sevaske/zatca/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/sevaske/zatca/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/sevaske/zatca/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/sevaske/zatca.svg?style=flat-square)](https://packagist.org/packages/sevaske/zatca)
 
-Laravel package to generate the certificate, invoices and working with the API.
+**Zatca** is a Laravel package that integrates with the [ZATCA e-invoicing system](https://zatca.gov.sa/), wrapping the [php-zatca-xml](https://github.com/sevaske/php-zatca-xml) core for certificate generation, XML invoice signing, and submission to the ZATCA API — all the Laravel way.
 
-## Installation
+## 🧱 Under the Hood
 
-You can install the package via composer:
+This package is a Laravel wrapper around:
+
+- [sevaske/php-zatca-xml](https://github.com/sevaske/php-zatca-xml) – core logic for XML building and signing
+- [sevaske/zatca-api](https://github.com/sevaske/zatca-api) – ZATCA API client
+
+## ✨ Features
+
+- 🧾 Generate and sign e-invoices (XML + QR)
+- 🔐 Manage CSRs, private keys, credentials
+- 🌍 Sandbox, simulation & production environments
+- 📂 Uses Laravel's filesystem to store certs and invoices
+- ⚙️ Laravel service provider, config, macros and bindings
+- 📦 Clean and extendable codebase
+
+## 📦 Installation
+
+Install via Composer:
 
 ```bash
 composer require sevaske/zatca
 ```
 
-You can publish the config file with:
+Publish the config file:
 
 ```bash
 php artisan vendor:publish --tag="zatca-config"
 ```
 
-This is the contents of the published config file:
+## ⚙️ Configuration
 
 ```php
 return [
-
-    /*
-    |--------------------------------------------------------------------------
-    | ZATCA Environment
-    |--------------------------------------------------------------------------
-    |
-    | This setting determines which ZATCA environment your application is
-    | currently using. It affects how the library behaves and which
-    | credentials and endpoints are utilized.
-    |
-    | Supported values:
-    | - sandbox
-    | - simulation
-    | - production
-    |
-    */
-
-    'env' => env('ZATCA_ENV',  'sandbox'),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Storage Configuration
-    |--------------------------------------------------------------------------
-    |
-    | This section defines filesystem disks and paths used by the ZATCA
-    | integration for storing invoices, certificates, keys, and credentials.
-    | You may configure different disks for invoices and credentials, as well
-    | as specify custom file paths relative to those disks.
-    |
-    */
-
+    'env' => env('ZATCA_ENV', 'sandbox'),
     'storage' => [
-
-        /*
-        |--------------------------------------------------------------------------
-        | Filesystem Disks
-        |--------------------------------------------------------------------------
-        |
-        | Specify which filesystem disks to use for storing credentials and
-        | invoices. These disks should be defined in your `config/filesystems.php`.
-        |
-        */
-
         'credentials_disk' => env('ZATCA_CREDENTIALS_DISK', env('FILESYSTEM_DISK', 'local')),
         'invoices_disk' => env('ZATCA_INVOICES_DISK', env('FILESYSTEM_DISK', 'local')),
-
-        /*
-        |--------------------------------------------------------------------------
-        | File and Folder Paths
-        |--------------------------------------------------------------------------
-        |
-        | Define relative paths to important files and folders used by the
-        | ZATCA integration. These paths are relative to the disks specified
-        | above.
-        |
-        */
-
         'paths' => [
-            // Folder path to store generated invoice files (e.g., PDFs, XMLs)
             'invoices' => env('ZATCA_INVOICES_FOLDER_PATH', 'zatca/invoices'),
-
-            // Path to the Certificate Signing Request (.csr) file used for certificate issuance
             'csr' => env('ZATCA_CSR_PATH', 'zatca/certificate.csr'),
-
-            // Path to the private key file in PEM format used for signing documents
             'private_key' => env('ZATCA_PRIVATE_KEY_PATH', 'zatca/private_key.pem'),
-
-            // Path to credentials used for sandbox/simulation environments (non-production)
             'compliance_credentials' => env('ZATCA_COMPLIANCE_CREDENTIALS_PATH', 'zatca/compliance_credentials.json'),
-
-            // Path to credentials used for production environment
             'production_credentials' => env('ZATCA_PRODUCTION_CREDENTIALS_PATH', 'zatca/production_credentials.json'),
         ],
     ],
 ];
 ```
 
-TODO (not ready):
-You can publish and run the migrations with:
-
-```bash
-php artisan vendor:publish --tag="zatca-migrations"
-php artisan migrate
-```
-
-## Usage
-
-TODO: more examples and description
+## ✅ Usage
 
 ```php
-\Zatca::api() // \Sevaske\ZatcaApi\Api;
-    ->reporting('xml', 'hash', 'uuid');
+use Zatca;
 
-\Zatca::files() // \Sevaske\Zatca\ZatcaFiles;
+Zatca::api()->reporting($xml, $hash, $uuid);
+
+$cert = Zatca::files()
     ->productionCredentials()
     ->certificate();
 ```
 
-## Macro
+## 🔌 HTTP Macro
 
 ```php
-\Illuminate\Support\Facades\Http::zatca(); // \Sevaske\ZatcaApi\Api;
+use Illuminate\Support\Facades\Http;
 
-\Zatca::macro('foo', function() {
-    return 'bar';
-});
-
-Zatca::foo(); // bar
+Http::zatca(); // \Sevaske\ZatcaApi\Api
 ```
 
-## TODO: Testing
+## 🧩 Zatca Macro
+
+The main `Zatca` class uses Laravel’s `Macroable` trait, allowing you to define your own methods at runtime:
+
+```php
+use Sevaske\Zatca\Facades\Zatca;
+
+Zatca::macro('hello', function () {
+    return '👋 Hello from macro!';
+});
+
+Zatca::hello(); // "👋 Hello from macro!"
+```
+
+You can register macros in a service provider or any bootstrap code (like `AppServiceProvider`).
+
+## 🧪 Testing
 
 ```bash
 composer test
 ```
 
-## Changelog
+## 📜 Changelog
 
-Please see [CHANGELOG](CHANGELOG.md) for more information on what has changed recently.
+See [CHANGELOG.md](CHANGELOG.md) for recent changes.
 
-## License
+## ⚖ License
 
-The MIT License (MIT). Please see [License File](LICENSE) for more information.
+MIT. See [LICENSE](LICENSE) for details.
+
+## 🙌 Credits
+
+Made by [Sevaske](https://github.com/sevaske)
