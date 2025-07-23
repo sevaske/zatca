@@ -5,6 +5,7 @@ namespace Sevaske\Zatca\Commands;
 use Illuminate\Support\Facades\Storage;
 use Saleh7\Zatca\CertificateBuilder;
 use Saleh7\Zatca\Exceptions\CertificateBuilderException;
+use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
 
 class ZatcaGenerateCsr extends ZatcaFileGenerating
 {
@@ -14,25 +15,28 @@ class ZatcaGenerateCsr extends ZatcaFileGenerating
 
     public function handle(): int
     {
-        // env
-        $environment = $this->choice('Mode', ['sandbox', 'simulation', 'production'], config('zatca.env'));
+        $env = ZatcaEnvironmentEnum::from($this->choice(
+            __('zatca::zatca.mode'),
+            ['sandbox', 'simulation', 'production'],
+            config('zatca.env'))
+        );
 
         // organization
-        $organizationId = $this->ask('Organization Identifier (3*************3)');
-        $organizationName = $this->ask('Organization Name');
-        $organizationCommonName = $this->ask('Organization Common Name');
-        $organizationalUnitName = $this->ask('Tax Identification Number');
-        $businessCategory = $this->ask('Business Category');
-        $organizationCountry = $this->ask('Organization Country', 'SA');
-        $organizationAddress = $this->ask('Organization Address');
+        $organizationId = $this->ask(__('zatca::zatca.organization_identifier'));
+        $organizationName = $this->ask(__('zatca::zatca.organization_name'));
+        $organizationCommonName = $this->ask(__('zatca::zatca.organization_common_name'));
+        $organizationalUnitName = $this->ask(__('zatca::zatca.tax_identification_number'));
+        $businessCategory = $this->ask(__('zatca::zatca.business_category'));
+        $organizationCountry = $this->ask(__('zatca::zatca.organization_country'), 'SA');
+        $organizationAddress = $this->ask(__('zatca::zatca.organization_address'));
 
         // 1100 - to be able to generate both types: simplified and standard
-        $invoiceType = $this->ask('Invoice Type', '1100');
+        $invoiceType = $this->ask(__('zatca::zatca.invoice_type'), '1100');
 
         // device
-        $deviceSolutionName = $this->ask('Device Solution Name');
-        $deviceModel = $this->ask('Device Model');
-        $deviceSerialNumber = $this->ask('Device Serial Number');
+        $deviceSolutionName = $this->ask(__('zatca::zatca.device_solution_name'));
+        $deviceModel = $this->ask(__('zatca::zatca.device_model'));
+        $deviceSerialNumber = $this->ask(__('zatca::zatca.device_serial'));
 
         try {
             $builder = (new CertificateBuilder)
@@ -45,7 +49,7 @@ class ZatcaGenerateCsr extends ZatcaFileGenerating
                 ->setAddress($organizationAddress)
                 ->setInvoiceType($invoiceType)
                 ->setBusinessCategory($businessCategory)
-                ->setProduction($environment === 'production');
+                ->setProduction($env->value === ZatcaEnvironmentEnum::Production->value);
 
             $builder->generate();
         } catch (CertificateBuilderException $e) {
@@ -54,40 +58,52 @@ class ZatcaGenerateCsr extends ZatcaFileGenerating
             return self::FAILURE;
         }
 
-        $diskName = $this->ask('Choose disk (only local driver)', config('zatca.storage.credentials_disk'));
-        $disk = Storage::disk($diskName);
+        try {
+            $csr = $builder->getCsr();
+            $privateKey = $builder->getPrivateKey();
+        } catch (CertificateBuilderException $e) {
+            $this->error($e->getMessage());
 
-        // csr
-        $csrPath = $this->askFilePathToPut(
-            $disk,
-            'Path to save the CSR file?',
-            config('zatca.storage.paths.csr')
-        );
-        $csrFullPath = $disk->path($csrPath);
-        $disk->put($csrPath, $builder->getCsr());
-
-        // failed to save
-        if (! $disk->exists($csrPath)) {
-            $this->error('Failed to save the CSR file. Path: '.$csrFullPath);
+            return self::FAILURE;
         }
 
-        // pem
-        $privateKeyPath = $this->askFilePathToPut(
-            $disk,
-            'Path to save the private key (.pem) file?',
-            config('zatca.storage.paths.private_key')
-        );
-        $privateKeyFullPath = $disk->path($privateKeyPath);
-        $disk->put($privateKeyPath, $builder->getPrivateKey());
+        $this->info(__('zatca::zatca.csr_path', ['path' => $csr]));
+        $this->info(__('zatca::zatca.key_path', ['path' => $privateKey]));
 
-        // failed to save
-        if (! $disk->exists($privateKeyPath)) {
-            $this->error('Failed to save the CSR file. Path: '.$privateKeyPath);
+        if ($this->confirm(__('zatca::zatca.confirm_saving_on_disk'))) {
+            $disk = $this->chooseDisk();
+
+            // csr
+            $csrPath = $this->askFilePathToPut(
+                $disk,
+                __('zatca::zatca.path_csr'),
+                config('zatca.storage.paths.csr')
+            );
+            $csrFullPath = $disk->path($csrPath);
+
+            if ($disk->put($csrPath, $csr)) {
+                $this->info(__('zatca::zatca.csr_path', ['path' => $csrFullPath]));
+            } else { // failed to save
+                $this->error('Failed to save the CSR file. Path: '.$csrFullPath);
+            }
+
+            // pem
+            $privateKeyPath = $this->askFilePathToPut(
+                $disk,
+                'Path to save the private key (.pem) file?',
+                config('zatca.storage.paths.private_key')
+            );
+            $privateKeyFullPath = $disk->path($privateKeyPath);
+            $disk->put($privateKeyPath, $privateKey);
+
+            if ($disk->put($privateKeyPath, $csr)) {
+                $this->info(__('zatca::zatca.csr_path', ['path' => $privateKeyFullPath]));
+            } else { // failed to save
+                $this->error('Failed to save the PEM file. Path: '.$privateKeyFullPath);
+            }
         }
 
         $this->info('Done.');
-        $this->info('CSR: '.$csrFullPath);
-        $this->info('Private Key: '.$privateKeyFullPath);
 
         return self::SUCCESS;
     }

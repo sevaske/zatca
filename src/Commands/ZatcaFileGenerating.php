@@ -4,6 +4,7 @@ namespace Sevaske\Zatca\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Storage;
 
 abstract class ZatcaFileGenerating extends Command
 {
@@ -20,5 +21,14 @@ abstract class ZatcaFileGenerating extends Command
         }
 
         return $path;
+    }
+
+    protected function chooseDisk(): Filesystem
+    {
+        return Storage::disk($this->choice(
+            __('zatca::zatca.choose_disk'),
+            array_keys(config('filesystems.disks')),
+            config('zatca.storage.credentials_disk'))
+        );
     }
 }
