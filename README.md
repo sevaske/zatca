@@ -1,4 +1,4 @@
-Laravel Integration for ZATCA e-Invoicing
+# Laravel Integration for ZATCA e-Invoicing
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/sevaske/zatca.svg?style=flat-square)](https://packagist.org/packages/sevaske/zatca)
 [![Total Downloads](https://img.shields.io/packagist/dt/sevaske/zatca.svg?style=flat-square)](https://packagist.org/packages/sevaske/zatca)
