@@ -15,7 +15,7 @@ class ZatcaGenerateCsr extends ZatcaFileGenerating
     public function handle(): int
     {
         // env
-        $environment = $this->choice('Mode', ['sandbox', 'simulation', 'production'], config('zatca.env'),);
+        $environment = $this->choice('Mode', ['sandbox', 'simulation', 'production'], config('zatca.env'));
 
         // organization
         $organizationId = $this->ask('Organization Identifier (3*************3)');
