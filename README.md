@@ -56,6 +56,67 @@ return [
 
 ## ✅ Usage
 
+### Commands
+
+Generating CSR and Private key (PEM):
+
+```apacheconf
+ php artisan  zatca:generate-csr
+
+ Mode [sandbox]:
+  [0] sandbox
+  [1] simulation
+  [2] production
+ > 
+
+ Organization Identifier (3*************3):
+ > 333333333333333
+
+ Organization Name:
+ > Kanoha
+
+ Organization Common Name:
+ > Kanoha Inn
+
+ Tax Identification Number:
+ > 1234567891
+
+ Business Category:
+ > Information Technology
+
+ Organization Country [SA]:
+ > SA
+
+ Organization Address:
+ > Kanoha village 123
+
+ Invoice Type [1100]:
+ > 1100
+
+ Device Solution Name:
+ > API
+
+ Device Model:
+ > Z
+
+ Device Serial Number:
+ > 1
+
+ Choose disk (only local driver) [local]:
+ > local
+
+ Path to save the CSR file? [zatca/certificate.csr]:
+ > zatca/certificate.csr
+
+ Path to save the private key (.pem) file? [zatca/private_key.pem]:
+ > zatca/private_key.pem
+
+Done.
+CSR: /var/www/laravel/storage/app/zatca/certificate.csr
+Private Key: /var/www/laravel/storage/app/zatca/private_key.pem
+
+```
+
 ```php
 use Zatca;
 

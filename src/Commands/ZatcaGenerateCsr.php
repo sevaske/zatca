@@ -21,7 +21,7 @@ class ZatcaGenerateCsr extends ZatcaFileGenerating
         $organizationId = $this->ask('Organization Identifier (3*************3)');
         $organizationName = $this->ask('Organization Name');
         $organizationCommonName = $this->ask('Organization Common Name');
-        $organizationalUnitName = $this->ask('Organizational Unit Name');
+        $organizationalUnitName = $this->ask('Tax Identification Number');
         $businessCategory = $this->ask('Business Category');
         $organizationCountry = $this->ask('Organization Country', 'SA');
         $organizationAddress = $this->ask('Organization Address');
