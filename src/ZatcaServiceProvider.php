@@ -34,7 +34,7 @@ class ZatcaServiceProvider extends PackageServiceProvider
             ])
             ->hasTranslations()
             ->hasConfigFile()
-            ->hasInstallCommand(function(InstallCommand $command) {
+            ->hasInstallCommand(function (InstallCommand $command) {
                 $command
                     ->publishConfigFile()
                     ->askToStarRepoOnGitHub('sevaske/zatca');

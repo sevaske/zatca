@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use Sevaske\ZatcaApi\Api;
 use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
 
-abstract class ZatcaCommand extends Command
+abstract class ZatcaOnboardingCommand extends Command
 {
     protected function chooseDisk(): Filesystem
     {
@@ -30,7 +30,7 @@ abstract class ZatcaCommand extends Command
         }
 
         // file exists, ask if should replace
-        if ($this->confirm(__('zatca::zatca.file_exists_confirm', ['path' => $disk->path($path)])) ) {
+        if ($this->confirm(__('zatca::zatca.file_exists_confirm', ['path' => $disk->path($path)]))) {
             return $path;
         }
 

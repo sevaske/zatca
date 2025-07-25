@@ -6,7 +6,7 @@ use Saleh7\Zatca\CertificateBuilder;
 use Saleh7\Zatca\Exceptions\CertificateBuilderException;
 use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
 
-class ZatcaGenerateCsr extends ZatcaCommand
+class ZatcaGenerateCsr extends ZatcaOnboardingCommand
 {
     public $signature = 'zatca:generate-csr';
 

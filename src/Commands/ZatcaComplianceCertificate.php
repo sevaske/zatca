@@ -5,7 +5,7 @@ namespace Sevaske\Zatca\Commands;
 use JsonException;
 use Sevaske\ZatcaApi\Exceptions\ZatcaException;
 
-class ZatcaComplianceCertificate extends ZatcaCommand
+class ZatcaComplianceCertificate extends ZatcaOnboardingCommand
 {
     public $signature = 'zatca:compliance-certificate';
 
