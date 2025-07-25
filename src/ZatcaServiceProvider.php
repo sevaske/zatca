@@ -13,6 +13,7 @@ use Sevaske\Zatca\Files\ZatcaPrivateKey;
 use Sevaske\Zatca\Files\ZatcaProductionCredentials;
 use Sevaske\ZatcaApi\Api;
 use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
+use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -32,7 +33,12 @@ class ZatcaServiceProvider extends PackageServiceProvider
                 ZatcaComplianceCertificate::class,
             ])
             ->hasTranslations()
-            ->hasConfigFile();
+            ->hasConfigFile()
+            ->hasInstallCommand(function(InstallCommand $command) {
+                $command
+                    ->publishConfigFile()
+                    ->askToStarRepoOnGitHub('sevaske/zatca');
+            });
     }
 
     public function registeringPackage(): void
