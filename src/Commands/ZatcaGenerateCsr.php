@@ -2,7 +2,6 @@
 
 namespace Sevaske\Zatca\Commands;
 
-use Illuminate\Contracts\Filesystem\Filesystem;
 use Saleh7\Zatca\CertificateBuilder;
 use Saleh7\Zatca\Exceptions\CertificateBuilderException;
 use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
