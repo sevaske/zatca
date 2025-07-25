@@ -26,13 +26,13 @@ This package is a Laravel wrapper around:
 Install via Composer:
 
 ```bash
-composer require sevaske/zatca
+composer require sevaske/zatca:dev-master
 ```
 
-Publish the config file:
+Install
 
 ```bash
-php artisan vendor:publish --tag="zatca-config"
+php artisan zatca:install
 ```
 
 ## ⚙️ Configuration
@@ -56,75 +56,56 @@ return [
 
 ## ✅ Usage
 
-### Commands
+Available commands
 
-Generating CSR and Private key (PEM):
-
-```apacheconf
- php artisan  zatca:generate-csr
-
- Mode [sandbox]:
-  [0] sandbox
-  [1] simulation
-  [2] production
- > 
-
- Organization Identifier (3*************3):
- > 333333333333333
-
- Organization Name:
- > Kanoha
-
- Organization Common Name:
- > Kanoha Inn
-
- Tax Identification Number:
- > 1234567891
-
- Business Category:
- > Information Technology
-
- Organization Country [SA]:
- > SA
-
- Organization Address:
- > Kanoha village 123
-
- Invoice Type [1100]:
- > 1100
-
- Device Solution Name:
- > API
-
- Device Model:
- > Z
-
- Device Serial Number:
- > 1
-
- Choose disk (only local driver) [local]:
- > local
-
- Path to save the CSR file? [zatca/certificate.csr]:
- > zatca/certificate.csr
-
- Path to save the private key (.pem) file? [zatca/private_key.pem]:
- > zatca/private_key.pem
-
-Done.
-CSR: /var/www/laravel/storage/app/zatca/certificate.csr
-Private Key: /var/www/laravel/storage/app/zatca/private_key.pem
-
+```bash
+php artisan zatca:generate-csr
+php artisan zatca:compliance-certificate
 ```
 
+## XML Generation and Signing
+
+This library uses [php-zatca-xml](https://github.com/sevaske/php-zatca-xml) for generating and signing XML files.  
+More details: [https://github.com/sevaske/php-zatca-xml](https://github.com/sevaske/php-zatca-xml)
+
+### API Methods
+
+The `\Zatca::api()` method is a wrapper around the [sevaske/zatca-api](https://github.com/sevaske/zatca-api) package, providing a simplified interface for interacting with ZATCA services:
+
 ```php
-use Zatca;
+use Illuminate\Support\Str;
 
-Zatca::api()->reporting($xml, $hash, $uuid);
+// Reporting Invoice
+\Zatca::api()->reporting('signed xml', 'hash', Str::uuid());
 
-$cert = Zatca::files()
-    ->productionCredentials()
-    ->certificate();
+// Clearance Invoice
+\Zatca::api()->clearance('signed xml', 'hash', Str::uuid());
+
+// Compliance Check
+\Zatca::api()->compliance('signed xml', 'hash', Str::uuid());
+
+// Compliance Certificate Request
+\Zatca::api()->complianceCertificate('csr', 'otp');
+
+// Production Certificate Request
+\Zatca::api()->productionCertificate('complianceRequestId');
+```
+
+More details: [https://github.com/sevaske/zatca-api](https://github.com/sevaske/zatca-api)
+
+### File Access Helpers
+
+The `\Zatca::files()` method provides access to stored production credentials:
+
+```php
+// Get the production certificate
+\Zatca::files()->productionCredentials()->certificate();
+
+// Get the secret associated with the certificate
+\Zatca::files()->productionCredentials()->secret();
+
+// Get the request ID used for the certificate
+\Zatca::files()->productionCredentials()->requestId();
 ```
 
 ## 🔌 HTTP Macro
