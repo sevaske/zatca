@@ -2,44 +2,39 @@
 
 namespace Sevaske\Zatca\Commands;
 
-use GuzzleHttp\Client;
-use Sevaske\ZatcaApi\Api;
-use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
+use JsonException;
 use Sevaske\ZatcaApi\Exceptions\ZatcaException;
 
-class ZatcaComplianceCertificate extends ZatcaFileGenerating
+class ZatcaComplianceCertificate extends ZatcaCommand
 {
     public $signature = 'zatca:compliance-certificate';
 
-    public $description = '';
+    public $description = 'Request a compliance certificate from ZATCA using a CSR and OTP.';
 
+    /**
+     * @throws JsonException
+     */
     public function handle(): int
     {
-        $env = ZatcaEnvironmentEnum::from($this->choice(
-            __('zatca::zatca.mode'),
+        $env = $this->choice(
+            __('zatca::zatca.select_environment'),
             ['sandbox', 'simulation', 'production'],
-            config('zatca.env'))
+            config('zatca.env')
         );
 
-        // api client
-        $api = new Api($env->value, new Client([
-            'base_uri' => $env->url(),
-            'timeout' => 60,
-            'verify' => true,
-        ]));
-
         $disk = $this->chooseDisk();
-        $path = $this->ask(__('zatca::zatca.path_csr'), config('zatca.storage.paths.csr'));
+        $csrPath = (string) $this->ask(__('zatca::zatca.enter_csr_path'), config('zatca.storage.paths.csr'));
 
-        if (! $csr = $disk->get($path)) {
-            $this->error(__('zatca::zatca.csr_load_failed', ['path' => $disk->path($path)]));
+        if (! $csr = $disk->get($csrPath)) {
+            $this->error(__('zatca::zatca.file_open_failed', ['path' => $disk->path($csrPath)]));
 
             return self::FAILURE;
         }
 
-        $otp = $this->ask(__('zatca::zatca.otp'));
+        $otp = (string) $this->ask(__('zatca::zatca.enter_otp'), '123345');
 
         try {
+            $api = $this->apiClient($env);
             $response = $api->complianceCertificate($csr, $otp);
         } catch (ZatcaException $e) {
             $this->error($e->getMessage());
@@ -47,22 +42,22 @@ class ZatcaComplianceCertificate extends ZatcaFileGenerating
             return self::FAILURE;
         }
 
-        $this->info(__('zatca::zatca.certificate_label', ['certificate' => $response->certificate()]));
-        $this->info(__('zatca::zatca.secret_label', ['secret' => $response->secret()]));
-        $this->info(__('zatca::zatca.request_id_label', ['request_id' => $response->requestId()]));
+        $credentials = json_encode([
+            'certificate' => $response->certificate(),
+            'secret' => $response->secret(),
+            'requestId' => $response->requestId(),
+        ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
+        $this->info(__('zatca::zatca.credentials_label', ['label' => $credentials]));
 
-        if ($this->confirm(__('zatca::zatca.confirm_saving_on_disk'))) {
-            $credentials = [
-                'certificate' => $response->certificate(),
-                'secret' => $response->secret(),
-                'requestId' => $response->requestId(),
-            ];
+        if ($this->confirm(__('zatca::zatca.confirm_saving_on_disk'), true)) {
+            $outputPath = $this->askFilePathToPut(
+                $disk,
+                __('zatca::zatca.enter_credentials_path_to_save'),
+                config('zatca.storage.paths.compliance_credentials')
+            );
 
-            $outputPath = $this->askFilePathToPut($disk, 'The path to the credentials file?', config('zatca.storage.paths.compliance_credentials'));
-
-            // failed to save
-            if (! $disk->put($outputPath, json_encode($credentials))) {
-                $this->error(__('zatca::zatca.failed_to_save_file', ['path' => $disk->path($outputPath)]));
+            if ($outputPath && ! $disk->put($outputPath, $credentials)) {
+                $this->error(__('zatca::zatca.file_save_failed', ['path' => $disk->path($outputPath)]));
             }
         }
 
