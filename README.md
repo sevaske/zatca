@@ -35,6 +35,16 @@ Install
 php artisan zatca:install
 ```
 
+## 🚀 Quick Start
+
+Run the following commands in sequence to set up your certificates and get started:
+
+```bash
+php artisan zatca:generate-csr
+php artisan zatca:compliance-certificate
+php artisan zatca:production-certificate
+```
+
 ## ⚙️ Configuration
 
 ```php
@@ -61,6 +71,7 @@ Available commands
 ```bash
 php artisan zatca:generate-csr
 php artisan zatca:compliance-certificate
+php artisan zatca:production-certificate
 ```
 
 ## XML Generation and Signing
