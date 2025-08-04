@@ -6,6 +6,7 @@ use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Http;
 use Sevaske\Zatca\Commands\ZatcaComplianceCertificate;
 use Sevaske\Zatca\Commands\ZatcaGenerateCsr;
+use Sevaske\Zatca\Commands\ZatcaProductionCertificate;
 use Sevaske\Zatca\Contracts\ZatcaFilesContract;
 use Sevaske\Zatca\Files\ZatcaComplianceCredentials;
 use Sevaske\Zatca\Files\ZatcaCsr;
@@ -31,6 +32,7 @@ class ZatcaServiceProvider extends PackageServiceProvider
             ->hasCommands([
                 ZatcaGenerateCsr::class,
                 ZatcaComplianceCertificate::class,
+                ZatcaProductionCertificate::class,
             ])
             ->hasTranslations()
             ->hasConfigFile()

@@ -45,19 +45,24 @@ abstract class ZatcaOnboardingCommand extends Command
         return $this->askFilePathToPut($disk, $question, $default);
     }
 
-    protected function apiClient(ZatcaEnvironmentEnum|string $env): Api
+    protected function apiClient(ZatcaEnvironmentEnum|string $env, ?string $certificate = null, ?string $secret = null): Api
     {
         $env = $env instanceof ZatcaEnvironmentEnum ? $env : ZatcaEnvironmentEnum::from($env);
 
         // singleton in the provider
         if ($env->value === config('zatca.env')) {
-            return app(Api::class);
+            $api = app(Api::class);
+            $api->setCredentials($certificate, $secret);
+
+            return $api;
         }
 
-        return new Api($env->value, new Client([
+        $httpClient = new Client([
             'base_uri' => $env->url(),
             'timeout' => 60,
             'verify' => true,
-        ]));
+        ]);
+
+        return new Api($env->value, $httpClient, $certificate, $secret);
     }
 }

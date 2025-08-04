@@ -19,6 +19,7 @@ return [
     'confirm_saving_on_disk' => 'Would you like to save this to disk?',
     'choose_disk' => 'Select a storage disk.',
     'enter_csr_path' => 'Enter the path to the CSR file.',
+    'enter_certificate_path' => 'Enter the path to the certificate file.',
     'enter_path_for_csr' => 'Enter the path to save the csr file.',
     'enter_path_for_pem' => 'Enter the path to save the private key file.',
     'file_save_failed' => 'Failed to save the file to :path.',
@@ -27,7 +28,10 @@ return [
     'file_exists_confirm' => 'The file ":path" already exists. Do you want to overwrite it?',
     'confirm_cancel_file_save' => 'Do you want to cancel saving the file?',
     'enter_otp' => 'Enter the OTP code.',
-    'csr_label' => 'CSR: :label',
-    'pem_label' => 'Private Key (PEM): :label',
-    'credentials_label' => 'Credentials: :label',
+    'csr_label' => 'CSR:
+:label',
+    'pem_label' => 'Private Key (PEM):
+:label',
+    'credentials_label' => 'Credentials:
+ :label',
 ];
