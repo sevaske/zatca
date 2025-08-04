@@ -26,7 +26,7 @@ This package is a Laravel wrapper around:
 Install via Composer:
 
 ```bash
-composer require sevaske/zatca:dev-master
+composer require sevaske/zatca
 ```
 
 Install
