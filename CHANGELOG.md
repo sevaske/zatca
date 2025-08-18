@@ -2,6 +2,10 @@
 
 All notable changes to `zatca` will be documented in this file.
 
+## v1.1.0 - 2025-08-18
+
+**Full Changelog**: https://github.com/sevaske/zatca/compare/v1.0.2...v1.1.0
+
 ## v1.0.2 - 2025-08-16
 
 ### What's Changed
