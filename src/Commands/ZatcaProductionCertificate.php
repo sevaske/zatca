@@ -2,69 +2,57 @@
 
 namespace Sevaske\Zatca\Commands;
 
-use JsonException;
-use Sevaske\ZatcaApi\Exceptions\ZatcaException;
+use Sevaske\ZatcaApi\Credentials\ComplianceCsid;
+use Sevaske\ZatcaApi\Exception\ZatcaException;
 
 class ZatcaProductionCertificate extends ZatcaOnboardingCommand
 {
-    public $signature = 'zatca:production-certificate';
+    public $signature = 'zatca:production-certificate
+        {--env= : sandbox, simulation or production}
+        {--disk= : filesystem disk of the files}
+        {--input= : path to the compliance credentials on the disk}
+        {--output= : path to save the production credentials to}
+        {--force : overwrite an existing file}';
 
-    public $description = 'Issues an X509 Production Cryptographic Stamp Identifier (PCSID) based on submitted CSR.';
+    public $description = 'Exchange the compliance CSID for a production CSID (after the compliance checks are passed).';
 
-    /**
-     * @throws JsonException
-     */
     public function handle(): int
     {
-        $env = $this->choice(
-            __('zatca::zatca.select_environment'),
-            ['sandbox', 'simulation', 'production'],
-            config('zatca.env')
-        );
+        $env = $this->chooseEnvironment();
         $disk = $this->chooseDisk();
-        $complianceCertificatePath = (string) $this->ask(
+        $inputPath = $this->optionOrAsk(
+            'input',
             __('zatca::zatca.enter_certificate_path'),
-            config('zatca.storage.paths.compliance_credentials')
+            config('zatca.storage.paths.compliance_credentials'),
         );
 
-        if (! $credentials = $disk->json($complianceCertificatePath)) {
-            $this->error(__('zatca::zatca.file_open_failed', ['path' => $disk->path($complianceCertificatePath)]));
+        $data = $disk->exists($inputPath) ? $disk->json($inputPath) : null;
+
+        if (! is_array($data)) {
+            $this->error(__('zatca::zatca.file_open_failed', ['path' => $inputPath]));
 
             return self::FAILURE;
         }
 
-        $complianceRequestId = $this->ask('Compliance Request ID', $credentials['requestId'] ?? null);
-
         try {
-            $api = $this->apiClient($env, $credentials['certificate'], $credentials['secret']);
-            $response = $api->productionCertificate($complianceRequestId);
+            $csid = $this->apiClient($env)->onboarding()
+                ->requestProductionCsid(ComplianceCsid::fromArray($data))
+                ->toProductionCsid();
         } catch (ZatcaException $e) {
             $this->error($e->getMessage());
 
             return self::FAILURE;
         }
 
-        $productionCredentials = json_encode([
-            'certificate' => $response->certificate(),
-            'secret' => $response->secret(),
-            'requestId' => $response->requestId(),
-        ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
-        $this->info(__('zatca::zatca.credentials_label', ['label' => $productionCredentials]));
+        $saved = $this->saveOrPrint(
+            $disk,
+            'output',
+            __('zatca::zatca.enter_credentials_path_to_save'),
+            config('zatca.storage.paths.production_credentials'),
+            json_encode($csid->toArray(), JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT),
+            __('zatca::zatca.credentials_name'),
+        );
 
-        if ($this->confirm(__('zatca::zatca.confirm_saving_on_disk'), true)) {
-            $outputPath = $this->askFilePathToPut(
-                $disk,
-                __('zatca::zatca.enter_credentials_path_to_save'),
-                config('zatca.storage.paths.production_credentials')
-            );
-
-            if ($outputPath && ! $disk->put($outputPath, $productionCredentials)) {
-                $this->error(__('zatca::zatca.file_save_failed', ['path' => $disk->path($outputPath)]));
-            }
-        }
-
-        $this->info(__('zatca::zatca.done'));
-
-        return self::SUCCESS;
+        return $saved ? self::SUCCESS : self::FAILURE;
     }
 }

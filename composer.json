@@ -2,32 +2,44 @@
     "name": "sevaske/zatca",
     "description": "Zatca laravel library",
     "keywords": [
-        "Sevaske",
         "laravel",
+        "laravel zatca",
+        "laravel fatoora",
         "zatca",
-        "fatoora"
+        "fatoora",
+        "invoice",
+        "zatca invoice",
+        "zatca invoice phase",
+        "zatca invoice phase2",
+        "zatca xml phase",
+        "fatoora invoice",
+        "fatoora invoice phase",
+        "fatoora xml invoice",
+        "xml",
+        "xml invoice"
     ],
     "homepage": "https://github.com/sevaske/zatca",
     "license": "MIT",
     "authors": [
         {
-            "name": "Sevak Mnatcakanian"
+            "name": "sevaske"
         }
     ],
     "require": {
         "php": "^8.1",
-        "illuminate/contracts": "^10.0||^11.0||^12.0",
-        "sevaske/php-zatca-xml": "^3.3",
+        "guzzlehttp/guzzle": "^7.9",
+        "illuminate/contracts": "^10.0||^11.0||^12.0||^13.0",
+        "sevaske/php-zatca-xml": "^4.0@rc",
+        "sevaske/zatca-api": "^3.0@rc",
         "spatie/laravel-package-tools": "^1.16"
     },
     "require-dev": {
-        "guzzlehttp/guzzle": "^7.9",
         "larastan/larastan": "^2.9||^3.0",
         "laravel/pint": "^1.14",
-        "nunomaduro/collision": "^8.1.1||^7.10.0",
-        "orchestra/testbench": "^8.36",
-        "pestphp/pest": "^v2.36.0||^v3.0",
-        "pestphp/pest-plugin-laravel": "^v2.4.0||^v3.0",
+        "nunomaduro/collision": "^7.10||^8.1.1||^9.0",
+        "orchestra/testbench": "^8.36||^9.0||^10.0||^11.0",
+        "pestphp/pest": "^2.36||^3.0||^4.0",
+        "pestphp/pest-plugin-laravel": "^2.4||^3.0||^4.0",
         "phpstan/extension-installer": "^1.3||^2.0",
         "phpstan/phpstan-deprecation-rules": "^1.1||^2.0",
         "phpstan/phpstan-phpunit": "^1.3||^2.0"

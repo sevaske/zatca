@@ -2,23 +2,46 @@
 
 namespace Sevaske\Zatca;
 
+use Closure;
 use Illuminate\Support\Traits\Macroable;
 use Sevaske\Zatca\Contracts\ZatcaFilesContract;
-use Sevaske\ZatcaApi\Api;
+use Sevaske\Zatca\Invoice\InvoiceService;
+use Sevaske\ZatcaApi\Client;
 
+/**
+ * @param  Closure(): Client  $client  resolves the API client on demand
+ */
 class Zatca
 {
     use Macroable;
 
-    public function __construct(protected Api $api, protected ZatcaFilesContract $files) {}
+    public function __construct(
+        protected Closure $client,
+        protected ZatcaFilesContract $files,
+        protected InvoiceService $invoices,
+    ) {}
 
-    public function api(): Api
+    /**
+     * Low-level ZATCA API client (onboarding, compliance, invoices).
+     */
+    public function client(): Client
     {
-        return $this->api;
+        return ($this->client)();
     }
 
+    /**
+     * Stored CSR, private key and CSIDs.
+     */
     public function files(): ZatcaFilesContract
     {
         return $this->files;
+    }
+
+    /**
+     * Build, sign and submit documents.
+     */
+    public function invoices(): InvoiceService
+    {
+        return $this->invoices;
     }
 }

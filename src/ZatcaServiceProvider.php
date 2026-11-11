@@ -2,8 +2,7 @@
 
 namespace Sevaske\Zatca;
 
-use GuzzleHttp\Client;
-use Illuminate\Support\Facades\Http;
+use GuzzleHttp\Client as GuzzleClient;
 use Sevaske\Zatca\Commands\ZatcaComplianceCertificate;
 use Sevaske\Zatca\Commands\ZatcaGenerateCsr;
 use Sevaske\Zatca\Commands\ZatcaProductionCertificate;
@@ -12,8 +11,9 @@ use Sevaske\Zatca\Files\ZatcaComplianceCredentials;
 use Sevaske\Zatca\Files\ZatcaCsr;
 use Sevaske\Zatca\Files\ZatcaPrivateKey;
 use Sevaske\Zatca\Files\ZatcaProductionCredentials;
-use Sevaske\ZatcaApi\Api;
-use Sevaske\ZatcaApi\Enums\ZatcaEnvironmentEnum;
+use Sevaske\Zatca\Invoice\InvoiceService;
+use Sevaske\ZatcaApi\Client;
+use Sevaske\ZatcaApi\ClientOptions;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -22,11 +22,6 @@ class ZatcaServiceProvider extends PackageServiceProvider
 {
     public function configurePackage(Package $package): void
     {
-        /*
-         * This class is a Package Service Provider
-         *
-         * More info: https://github.com/spatie/laravel-package-tools
-         */
         $package
             ->name('zatca')
             ->hasCommands([
@@ -45,7 +40,6 @@ class ZatcaServiceProvider extends PackageServiceProvider
 
     public function registeringPackage(): void
     {
-        // files
         $this->app->bind(ZatcaFilesContract::class, fn () => new ZatcaFiles(
             new ZatcaCsr,
             new ZatcaPrivateKey,
@@ -53,27 +47,33 @@ class ZatcaServiceProvider extends PackageServiceProvider
             new ZatcaProductionCredentials,
         ));
 
-        // api http client
-        $this->app->singleton(Api::class, function () {
-            $env = ZatcaEnvironmentEnum::from(config('zatca.env'));
+        // scoped, not singleton: config and credentials are re-read per request / Octane tick
+        $this->app->scoped(Client::class, function () {
+            $options = ClientOptions::create()
+                ->withHttpClient(new GuzzleClient([
+                    'timeout' => (float) config('zatca.http.timeout', 60),
+                    'connect_timeout' => (float) config('zatca.http.connect_timeout', 10),
+                    'verify' => true,
+                    // ZATCA answers 303 when clearance is deactivated: it must reach the library
+                    'allow_redirects' => false,
+                    'http_errors' => false,
+                ]))
+                ->withLanguage((string) config('zatca.language', 'en'))
+                ->withClearanceEnabled((bool) config('zatca.clearance_enabled', true));
 
-            return new Api($env->value, new Client([
-                'base_uri' => $env->url(),
-                'timeout' => 60,
-                'verify' => true,
-            ]));
+            return new Client((string) config('zatca.env'), $options);
         });
 
-        // main class
-        $this->app->singleton(Zatca::class, function () {
-            return new Zatca(app(Api::class), app(ZatcaFilesContract::class));
-        });
-    }
+        // the services look the client up on every call, so swapping it (tests, custom transport) always works
+        $this->app->bind(InvoiceService::class, fn ($app) => new InvoiceService(
+            fn () => $app->make(Client::class),
+            $app->make(ZatcaFilesContract::class),
+        ));
 
-    public function packageBooted(): void
-    {
-        Http::macro('zatca', function () {
-            return app(Api::class);
-        });
+        $this->app->bind(Zatca::class, fn ($app) => new Zatca(
+            fn () => $app->make(Client::class),
+            $app->make(ZatcaFilesContract::class),
+            $app->make(InvoiceService::class),
+        ));
     }
 }

@@ -2,24 +2,23 @@
 
 return [
     'select_environment' => 'Select environment',
-    'organization_identifier' => 'Organization Identifier',
+    'organization_identifier' => 'Organization Identifier (VAT number: 15 digits, starts and ends with 3)',
     'organization_name' => 'Organization Name',
-    'organization_common_name' => 'Organization Common Name',
-    'tax_identification_number' => 'Tax Identification Number (TIN)',
+    'organization_common_name' => 'Common Name',
+    'organizational_unit_name' => 'Organizational Unit (branch name; the TIN of the member for VAT groups)',
     'business_category' => 'Business Category',
     'organization_country' => 'Country',
     'organization_address' => 'Organization Address',
-    'invoice_type' => 'Invoice Type',
-    'device_solution_name' => 'Device Solution Name',
-    'device_model' => 'Device Model',
-    'device_serial' => 'Device Serial Number',
+    'invoice_type' => 'Document types (1000 standard, 0100 simplified, 1100 both)',
+    'device_solution_name' => 'Solution Name',
+    'device_model' => 'Model',
+    'device_serial' => 'Unique serial number of this EGS unit',
 
-    'done' => 'Done.',
     'process_stopped' => 'Process stopped.',
     'confirm_saving_on_disk' => 'Would you like to save this to disk?',
     'choose_disk' => 'Select a storage disk.',
     'enter_csr_path' => 'Enter the path to the CSR file.',
-    'enter_certificate_path' => 'Enter the path to the certificate file.',
+    'enter_certificate_path' => 'Enter the path to the compliance credentials file.',
     'enter_path_for_csr' => 'Enter the path to save the csr file.',
     'enter_path_for_pem' => 'Enter the path to save the private key file.',
     'file_save_failed' => 'Failed to save the file to :path.',
@@ -28,10 +27,8 @@ return [
     'file_exists_confirm' => 'The file ":path" already exists. Do you want to overwrite it?',
     'confirm_cancel_file_save' => 'Do you want to cancel saving the file?',
     'enter_otp' => 'Enter the OTP code.',
-    'csr_label' => 'CSR:
-:label',
-    'pem_label' => 'Private Key (PEM):
-:label',
-    'credentials_label' => 'Credentials:
- :label',
+    'saved_to' => ':label saved to :path.',
+    'csr_name' => 'CSR',
+    'pem_name' => 'Private key',
+    'credentials_name' => 'Credentials',
 ];

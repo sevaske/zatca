@@ -21,13 +21,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | API Client
+    |--------------------------------------------------------------------------
+    |
+    | language: language of ZATCA validation messages ("en" or "ar").
+    | clearance_enabled: sent as the Clearance-Status header of reporting
+    | requests. Set to false only while ZATCA has deactivated clearance for you.
+    |
+    */
+
+    'language' => env('ZATCA_LANGUAGE', 'en'),
+
+    'clearance_enabled' => env('ZATCA_CLEARANCE_ENABLED', true),
+
+    'http' => [
+        'timeout' => env('ZATCA_HTTP_TIMEOUT', 60),
+        'connect_timeout' => env('ZATCA_HTTP_CONNECT_TIMEOUT', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Storage Configuration
     |--------------------------------------------------------------------------
     |
-    | This section defines filesystem disks and paths used by the ZATCA
-    | integration for storing invoices, certificates, keys, and credentials.
-    | You may configure different disks for invoices and credentials, as well
-    | as specify custom file paths relative to those disks.
+    | This section defines filesystem disk and paths used by the ZATCA
+    | integration for storing the CSR, private key and CSID credentials.
+    | Use a private disk: these files contain secrets.
     |
     */
 
@@ -35,16 +54,15 @@ return [
 
         /*
         |--------------------------------------------------------------------------
-        | Filesystem Disks
+        | Filesystem Disk
         |--------------------------------------------------------------------------
         |
-        | Specify which filesystem disks to use for storing credentials and
-        | invoices. These disks should be defined in your `config/filesystems.php`.
+        | The disk used for the CSR, private key and credentials. It must be
+        | defined in your `config/filesystems.php` and must NOT be public.
         |
         */
 
         'credentials_disk' => env('ZATCA_CREDENTIALS_DISK', env('FILESYSTEM_DISK', 'local')),
-        'invoices_disk' => env('ZATCA_INVOICES_DISK', env('FILESYSTEM_DISK', 'local')),
 
         /*
         |--------------------------------------------------------------------------
@@ -58,9 +76,6 @@ return [
         */
 
         'paths' => [
-            // Folder path to store generated invoice files (e.g., PDFs, XMLs)
-            'invoices' => env('ZATCA_INVOICES_FOLDER_PATH', 'zatca/invoices'),
-
             // Path to the Certificate Signing Request (.csr) file used for certificate issuance
             'csr' => env('ZATCA_CSR_PATH', 'zatca/certificate.csr'),
 
