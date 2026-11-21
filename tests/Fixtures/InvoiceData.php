@@ -3,32 +3,29 @@
 namespace Sevaske\Zatca\Tests\Fixtures;
 
 use Illuminate\Support\Str;
+use Sevaske\Zatca\Invoice\InvoiceChain;
 
 class InvoiceData
 {
-    public const FIRST_PIH = 'NWZlY2ViNjZmZmM4NmYzOGQ5NTI3ODZjNmQ2OTZjNzljMmRiYzIzOWRkNGU5MWI0NjcyOWQ3M2EyN2ZiNTdlOQ==';
-
     /**
-     * A valid simplified (or standard) tax invoice: 2 x 100.00 + 15% VAT.
+     * A valid simplified (or standard) invoice, credit or debit note: 2 x 100.00 + 15% VAT.
+     *
+     * Without $icv the data has no ICV and PIH: an EGS unit fills them in.
      *
      * @return array<string, mixed>
      */
-    public static function make(string $kind = 'simplified', int $icv = 1, string $pih = self::FIRST_PIH): array
+    public static function make(string $kind = 'simplified', string $type = 'invoice', ?int $icv = null, string $pih = InvoiceChain::INITIAL_HASH): array
     {
         $now = date('Y-m-d H:i:s');
 
         $data = [
             'uuid' => (string) Str::uuid(),
-            'id' => 'INV-'.$icv.'-'.time(),
+            'id' => 'INV-'.Str::random(8),
             'issueDate' => $now,
             'issueTime' => $now,
             'currencyCode' => 'SAR',
             'taxCurrencyCode' => 'SAR',
-            'invoiceType' => ['invoice' => $kind, 'type' => 'invoice'],
-            'additionalDocuments' => [
-                ['id' => 'ICV', 'uuid' => (string) $icv],
-                ['id' => 'PIH', 'attachment' => ['content' => $pih]],
-            ],
+            'invoiceType' => ['invoice' => $kind, 'type' => $type],
             'supplier' => [
                 'registrationName' => 'Maximum Speed Tech Supply LTD',
                 'taxId' => '399999999900003',
@@ -73,6 +70,18 @@ class InvoiceData
                 'taxTotal' => ['taxAmount' => 30.00, 'roundingAmount' => 230.00],
             ]],
         ];
+
+        if ($icv !== null) {
+            $data['additionalDocuments'] = [
+                ['id' => 'ICV', 'uuid' => (string) $icv],
+                ['id' => 'PIH', 'attachment' => ['content' => $pih]],
+            ];
+        }
+
+        if ($type !== 'invoice') {
+            $data['billingReferences'] = [['id' => 'INV-ORIGINAL']];
+            $data['paymentMeans']['note'] = 'Returned goods';
+        }
 
         if ($kind === 'standard') {
             $data['delivery'] = ['actualDeliveryDate' => $now];

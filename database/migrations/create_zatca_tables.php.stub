@@ -1,0 +1,85 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function getConnection(): ?string
+    {
+        return config('zatca.database.connection') ?: parent::getConnection();
+    }
+
+    public function up(): void
+    {
+        $units = config('zatca.database.tables.units', 'zatca_egs_units');
+        $documents = config('zatca.database.tables.documents', 'zatca_documents');
+
+        $schema = Schema::connection($this->getConnection());
+
+        $schema->create($units, function (Blueprint $table) {
+            $table->id();
+            $table->string('key');                                  // your identifier, e.g. "default", "store-15"
+            $table->string('environment', 20);                      // sandbox, simulation, production
+            $table->string('name')->nullable();
+            $table->string('vat_number', 15)->index();              // seller VAT number, as in the CSR
+            $table->string('invoice_types', 4)->default('1100');    // 1000 standard, 0100 simplified, 1100 both
+
+            // onboarding; the private key and the CSIDs are encrypted with the application key
+            $table->json('csr_options')->nullable();
+            $table->text('csr')->nullable();
+            $table->text('private_key')->nullable();
+            $table->text('compliance_csid')->nullable();
+            $table->text('production_csid')->nullable();
+
+            // position of the invoice chain: counter and hash of the last generated document
+            $table->unsignedBigInteger('last_icv')->default(0);
+            $table->string('last_hash', 100)->nullable();
+
+            $table->timestamps();
+
+            $table->unique(['key', 'environment']);
+        });
+
+        $schema->create($documents, function (Blueprint $table) use ($units) {
+            $table->id();
+            $table->foreignId('egs_unit_id')->constrained($units)->restrictOnDelete();
+            $table->nullableMorphs('owner');                        // your order, note, commission ...
+
+            // the chain: never changed after signing
+            $table->uuid('uuid')->unique();
+            $table->unsignedBigInteger('icv');
+            $table->string('pih', 100);                         // the initial PIH is 88 characters
+            $table->string('hash', 100);
+
+            $table->string('number')->nullable()->index();          // invoice number (cbc:ID)
+            $table->string('profile', 10);                          // standard, simplified
+            $table->string('type', 10);                             // invoice, credit, debit
+            $table->string('billing_reference')->nullable();        // the invoice a note refers to
+            $table->dateTime('issued_at')->nullable();
+
+            $table->longText('xml');                                // exactly as signed
+            $table->longText('cleared_xml')->nullable();            // stamped by ZATCA (standard documents)
+            $table->text('qr');
+
+            $table->string('status', 20)->default('pending')->index();
+            $table->json('errors')->nullable();
+            $table->json('warnings')->nullable();
+            $table->unsignedInteger('attempts')->default(0);
+            $table->dateTime('submitted_at')->nullable();
+
+            $table->timestamps();
+
+            $table->unique(['egs_unit_id', 'icv']);
+        });
+    }
+
+    public function down(): void
+    {
+        $schema = Schema::connection($this->getConnection());
+
+        $schema->dropIfExists(config('zatca.database.tables.documents', 'zatca_documents'));
+        $schema->dropIfExists(config('zatca.database.tables.units', 'zatca_egs_units'));
+    }
+};

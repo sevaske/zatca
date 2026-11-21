@@ -3,15 +3,10 @@
 namespace Sevaske\Zatca;
 
 use GuzzleHttp\Client as GuzzleClient;
-use Sevaske\Zatca\Commands\ZatcaComplianceCertificate;
-use Sevaske\Zatca\Commands\ZatcaGenerateCsr;
-use Sevaske\Zatca\Commands\ZatcaProductionCertificate;
-use Sevaske\Zatca\Contracts\ZatcaFilesContract;
-use Sevaske\Zatca\Files\ZatcaComplianceCredentials;
-use Sevaske\Zatca\Files\ZatcaCsr;
-use Sevaske\Zatca\Files\ZatcaPrivateKey;
-use Sevaske\Zatca\Files\ZatcaProductionCredentials;
-use Sevaske\Zatca\Invoice\InvoiceService;
+use Sevaske\Zatca\Commands\ImportCommand;
+use Sevaske\Zatca\Commands\OnboardCommand;
+use Sevaske\Zatca\Commands\RenewCommand;
+use Sevaske\Zatca\Commands\UnitsCommand;
 use Sevaske\ZatcaApi\Client;
 use Sevaske\ZatcaApi\ClientOptions;
 use Spatie\LaravelPackageTools\Commands\InstallCommand;
@@ -24,30 +19,26 @@ class ZatcaServiceProvider extends PackageServiceProvider
     {
         $package
             ->name('zatca')
-            ->hasCommands([
-                ZatcaGenerateCsr::class,
-                ZatcaComplianceCertificate::class,
-                ZatcaProductionCertificate::class,
-            ])
-            ->hasTranslations()
             ->hasConfigFile()
+            ->hasMigration('create_zatca_tables')
+            ->hasCommands([
+                OnboardCommand::class,
+                RenewCommand::class,
+                ImportCommand::class,
+                UnitsCommand::class,
+            ])
             ->hasInstallCommand(function (InstallCommand $command) {
                 $command
                     ->publishConfigFile()
+                    ->publishMigrations()
+                    ->askToRunMigrations()
                     ->askToStarRepoOnGitHub('sevaske/zatca');
             });
     }
 
     public function registeringPackage(): void
     {
-        $this->app->bind(ZatcaFilesContract::class, fn () => new ZatcaFiles(
-            new ZatcaCsr,
-            new ZatcaPrivateKey,
-            new ZatcaComplianceCredentials,
-            new ZatcaProductionCredentials,
-        ));
-
-        // scoped, not singleton: config and credentials are re-read per request / Octane tick
+        // scoped, not singleton: the config is read again per request / Octane tick
         $this->app->scoped(Client::class, function () {
             $options = ClientOptions::create()
                 ->withHttpClient(new GuzzleClient([
@@ -64,16 +55,6 @@ class ZatcaServiceProvider extends PackageServiceProvider
             return new Client((string) config('zatca.env'), $options);
         });
 
-        // the services look the client up on every call, so swapping it (tests, custom transport) always works
-        $this->app->bind(InvoiceService::class, fn ($app) => new InvoiceService(
-            fn () => $app->make(Client::class),
-            $app->make(ZatcaFilesContract::class),
-        ));
-
-        $this->app->bind(Zatca::class, fn ($app) => new Zatca(
-            fn () => $app->make(Client::class),
-            $app->make(ZatcaFilesContract::class),
-            $app->make(InvoiceService::class),
-        ));
+        $this->app->bind(Zatca::class, fn ($app) => new Zatca($app));
     }
 }

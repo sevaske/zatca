@@ -1,45 +1,44 @@
 <?php
 
-use Illuminate\Support\Facades\Storage;
-use Saleh7\Zatca\CertificateBuilder;
-use Sevaske\Zatca\Invoice\SignedDocument;
+use Sevaske\Zatca\Enums\DocumentStatus;
+use Sevaske\Zatca\Facades\Zatca;
+use Sevaske\Zatca\Models\EgsUnit;
 use Sevaske\Zatca\Tests\Fixtures\InvoiceData;
-use Sevaske\Zatca\Zatca;
 
 /*
- * Live run against the ZATCA developer-portal sandbox (public test OTP).
- * Skipped by default: ZATCA_LIVE=1 vendor/bin/pest --group=sandbox
+ * End to end against the ZATCA developer-portal sandbox (public test OTP): onboarding with the generated compliance
+ * samples, then issuing and submitting real documents. Skipped by default:
+ *
+ *     ZATCA_LIVE=1 vendor/bin/pest --group=sandbox
  */
-it('onboards, signs and checks invoices in the sandbox', function () {
-    Storage::fake('local');
-    config()->set('zatca.storage.credentials_disk', 'local');
-    $zatca = app(Zatca::class);
+it('onboards a unit, issues and submits documents in the sandbox', function () {
+    $unit = EgsUnit::query()->create(['key' => 'live', 'environment' => 'sandbox', 'vat_number' => '399999999900003', 'invoice_types' => '1100']);
+    $onboarding = Zatca::onboarding();
 
-    $builder = (new CertificateBuilder)
-        ->setOrganizationIdentifier('399999999900003')
-        ->setSerialNumber('PHPZATCA', 'V3', 'LARAVEL1')
-        ->setCommonName('TST-886431145-399999999900003')
-        ->setCountryName('SA')
-        ->setOrganizationName('Maximum Speed Tech Supply LTD')
-        ->setOrganizationalUnitName('Riyadh Branch')
-        ->setAddress('RRRD2929')
-        ->setInvoiceType(1100)
-        ->setProduction(false)
-        ->setBusinessCategory('Supply activities')
-        ->generate();
+    $onboarding->generateCsr($unit, [
+        'organization_name' => 'Maximum Speed Tech Supply LTD',
+        'organizational_unit' => 'Riyadh Branch',
+        'common_name' => 'TST-886431145-399999999900003',
+        'solution' => 'PHPZATCA',
+        'model' => 'V3',
+        'serial' => 'LARAVEL1',
+        'address' => 'RRRD2929',
+        'business_category' => 'Supply activities',
+    ]);
+    $onboarding->requestComplianceCsid($unit, '123345');
 
-    $zatca->files()->privateKey()->put($builder->getPrivateKey());
-    $csid = $zatca->client()->onboarding()->requestComplianceCsid($builder->getCsr(), '123345')->toComplianceCsid();
-    $zatca->files()->complianceCredentials()->put($csid);
-
-    foreach (['simplified', 'standard'] as $i => $kind) {
-        $document = $zatca->invoices()->sign(InvoiceData::make($kind, $i + 1), $csid);
-
-        expect($document)->toBeInstanceOf(SignedDocument::class)
-            ->and($document->requiresClearance())->toBe($kind === 'standard');
-
-        $result = $zatca->invoices()->check($document);
-
-        expect($result->isPassed())->toBeTrue(json_encode($result->getData()));
+    foreach ($onboarding->runComplianceChecks($unit) as $label => $result) {
+        expect($result->isPassed())->toBeTrue($label.': '.json_encode($result->getData()));
     }
+
+    $onboarding->requestProductionCsid($unit);
+
+    foreach (['simplified', 'standard'] as $profile) {
+        $document = $unit->issue(InvoiceData::make($profile))->submit();
+
+        expect($document->status->isAccepted())->toBeTrue(json_encode([$document->status, $document->errors]));
+    }
+
+    expect($unit->fresh()->last_icv)->toBe(2)
+        ->and($unit->documents()->where('status', DocumentStatus::Cleared)->exists())->toBeTrue();
 })->group('sandbox')->skip(fn () => ! getenv('ZATCA_LIVE'), 'set ZATCA_LIVE=1 to run against the ZATCA sandbox');

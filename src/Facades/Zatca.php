@@ -5,9 +5,10 @@ namespace Sevaske\Zatca\Facades;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @method static \Sevaske\ZatcaApi\Client client()
- * @method static \Sevaske\Zatca\Contracts\ZatcaFilesContract files()
- * @method static \Sevaske\Zatca\Invoice\InvoiceService invoices()
+ * @method static \Sevaske\Zatca\Models\EgsUnit unit(?string $key = null)
+ * @method static \Sevaske\Zatca\Invoice\InvoiceService invoices(?string $environment = null)
+ * @method static \Sevaske\Zatca\Onboarding\Onboarding onboarding()
+ * @method static \Sevaske\ZatcaApi\Client client(?string $environment = null)
  *
  * @see \Sevaske\Zatca\Zatca
  */

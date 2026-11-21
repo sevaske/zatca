@@ -1,19 +1,17 @@
 <?php
 
+use Sevaske\Zatca\Models\Document;
+use Sevaske\Zatca\Models\EgsUnit;
+
 return [
+
     /*
     |--------------------------------------------------------------------------
-    | ZATCA Environment
+    | Environment
     |--------------------------------------------------------------------------
     |
-    | This setting determines which ZATCA environment your application is
-    | currently using. It affects how the library behaves and which
-    | credentials and endpoints are utilized.
-    |
-    | Supported values:
-    | - sandbox
-    | - simulation
-    | - production
+    | "sandbox", "simulation" or "production". Every EGS unit belongs to one
+    | environment; Zatca::unit() looks units up in this one.
     |
     */
 
@@ -21,18 +19,31 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | API Client
+    | Default EGS unit
+    |--------------------------------------------------------------------------
+    |
+    | Key of the unit returned by Zatca::unit() without arguments. Applications
+    | with a single unit never need to name it.
+    |
+    */
+
+    'unit' => env('ZATCA_UNIT', 'default'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | API client
     |--------------------------------------------------------------------------
     |
     | language: language of ZATCA validation messages ("en" or "ar").
-    | clearance_enabled: sent as the Clearance-Status header of reporting
-    | requests. Set to false only while ZATCA has deactivated clearance for you.
+    | clearance_enabled: set to false only while ZATCA has deactivated
+    | clearance for you; standard documents are then reported. When ZATCA
+    | answers HTTP 303 to a clearance request this happens automatically.
     |
     */
 
     'language' => env('ZATCA_LANGUAGE', 'en'),
 
-    'clearance_enabled' => env('ZATCA_CLEARANCE_ENABLED', true),
+    'clearance_enabled' => (bool) env('ZATCA_CLEARANCE_ENABLED', true),
 
     'http' => [
         'timeout' => env('ZATCA_HTTP_TIMEOUT', 60),
@@ -41,52 +52,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Storage Configuration
+    | Database
     |--------------------------------------------------------------------------
     |
-    | This section defines filesystem disk and paths used by the ZATCA
-    | integration for storing the CSR, private key and CSID credentials.
-    | Use a private disk: these files contain secrets.
+    | Units hold the private key, the CSIDs and the position of the invoice
+    | chain; documents hold every signed invoice, credit and debit note.
+    | Publish the migration with: php artisan vendor:publish --tag=zatca-migrations
+    |
+    | Swap the models for your own subclasses to add relations or casts.
     |
     */
 
-    'storage' => [
+    'database' => [
+        'connection' => env('ZATCA_DB_CONNECTION'),
 
-        /*
-        |--------------------------------------------------------------------------
-        | Filesystem Disk
-        |--------------------------------------------------------------------------
-        |
-        | The disk used for the CSR, private key and credentials. It must be
-        | defined in your `config/filesystems.php` and must NOT be public.
-        |
-        */
-
-        'credentials_disk' => env('ZATCA_CREDENTIALS_DISK', env('FILESYSTEM_DISK', 'local')),
-
-        /*
-        |--------------------------------------------------------------------------
-        | File and Folder Paths
-        |--------------------------------------------------------------------------
-        |
-        | Define relative paths to important files and folders used by the
-        | ZATCA integration. These paths are relative to the disks specified
-        | above.
-        |
-        */
-
-        'paths' => [
-            // Path to the Certificate Signing Request (.csr) file used for certificate issuance
-            'csr' => env('ZATCA_CSR_PATH', 'zatca/certificate.csr'),
-
-            // Path to the private key file in PEM format used for signing documents
-            'private_key' => env('ZATCA_PRIVATE_KEY_PATH', 'zatca/private_key.pem'),
-
-            // Path to credentials used for sandbox/simulation environments (non-production)
-            'compliance_credentials' => env('ZATCA_COMPLIANCE_CREDENTIALS_PATH', 'zatca/compliance_credentials.json'),
-
-            // Path to credentials used for production environment
-            'production_credentials' => env('ZATCA_PRODUCTION_CREDENTIALS_PATH', 'zatca/production_credentials.json'),
+        'tables' => [
+            'units' => 'zatca_egs_units',
+            'documents' => 'zatca_documents',
         ],
+    ],
+
+    'models' => [
+        'unit' => EgsUnit::class,
+        'document' => Document::class,
     ],
 ];

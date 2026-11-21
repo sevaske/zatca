@@ -1,6 +1,6 @@
 {
     "name": "sevaske/zatca",
-    "description": "Zatca laravel library",
+    "description": "Laravel integration for ZATCA (Fatoora) e-invoicing phase 2: EGS units, invoice chain, signing, reporting and clearance",
     "keywords": [
         "laravel",
         "laravel zatca",
@@ -27,11 +27,14 @@
     ],
     "require": {
         "php": "^8.1",
+        "ext-openssl": "*",
         "guzzlehttp/guzzle": "^7.9",
         "illuminate/contracts": "^10.0||^11.0||^12.0||^13.0",
+        "illuminate/database": "^10.0||^11.0||^12.0||^13.0",
+        "illuminate/support": "^10.0||^11.0||^12.0||^13.0",
         "sevaske/php-zatca-xml": "^4.0@rc",
         "sevaske/zatca-api": "^3.0@rc",
-        "spatie/laravel-package-tools": "^1.16"
+        "spatie/laravel-package-tools": "^1.16",
     },
     "require-dev": {
         "larastan/larastan": "^2.9||^3.0",
@@ -46,8 +49,7 @@
     },
     "autoload": {
         "psr-4": {
-            "Sevaske\\Zatca\\": "src/",
-            "Sevaske\\Zatca\\Database\\Factories\\": "database/factories/"
+            "Sevaske\\Zatca\\": "src/"
         }
     },
     "autoload-dev": {

@@ -2,6 +2,8 @@
 
 namespace Sevaske\Zatca\Invoice;
 
+use Sevaske\Zatca\Enums\DocumentType;
+use Sevaske\Zatca\Enums\Profile;
 use Sevaske\ZatcaApi\Invoice\SignedInvoice;
 
 /**
@@ -16,7 +18,8 @@ final class SignedDocument
         public readonly string $hash,
         public readonly string $uuid,
         public readonly string $qrCode,
-        public readonly bool $standard,
+        public readonly Profile $profile,
+        public readonly DocumentType $type = DocumentType::Invoice,
     ) {}
 
     /**
@@ -24,7 +27,7 @@ final class SignedDocument
      */
     public function requiresClearance(): bool
     {
-        return $this->standard;
+        return $this->profile === Profile::Standard;
     }
 
     public function toSignedInvoice(): SignedInvoice

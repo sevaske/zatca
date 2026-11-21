@@ -8,3 +8,6 @@ parameters:
     tmpDir: build/phpstan
     checkOctaneCompatibility: true
     checkModelProperties: true
+    ignoreErrors:
+        # HasZatcaDocuments is for the application's models; nothing in the package uses it
+        - identifier: trait.unused

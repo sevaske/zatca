@@ -2,46 +2,64 @@
 
 namespace Sevaske\Zatca;
 
-use Closure;
+use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Traits\Macroable;
-use Sevaske\Zatca\Contracts\ZatcaFilesContract;
+use Sevaske\Zatca\Exceptions\ZatcaConfigurationException;
 use Sevaske\Zatca\Invoice\InvoiceService;
+use Sevaske\Zatca\Models\EgsUnit;
+use Sevaske\Zatca\Models\Models;
+use Sevaske\Zatca\Onboarding\Onboarding;
 use Sevaske\ZatcaApi\Client;
 
-/**
- * @param  Closure(): Client  $client  resolves the API client on demand
- */
 class Zatca
 {
     use Macroable;
 
-    public function __construct(
-        protected Closure $client,
-        protected ZatcaFilesContract $files,
-        protected InvoiceService $invoices,
-    ) {}
+    public function __construct(protected Container $container) {}
 
     /**
-     * Low-level ZATCA API client (onboarding, compliance, invoices).
+     * An EGS unit of the configured environment. Without a key: the default unit (`zatca.unit`).
+     *
+     * @throws ZatcaConfigurationException when there is no such unit
      */
-    public function client(): Client
+    public function unit(?string $key = null): EgsUnit
     {
-        return ($this->client)();
+        $key ??= (string) config('zatca.unit');
+        $environment = (string) config('zatca.env');
+
+        return Models::unit()::query()->where('key', $key)->where('environment', $environment)->first()
+            ?? throw ZatcaConfigurationException::unitNotFound($key, $environment);
     }
 
     /**
-     * Stored CSR, private key and CSIDs.
+     * Build, sign and submit single documents with explicit credentials (no database).
      */
-    public function files(): ZatcaFilesContract
+    public function invoices(?string $environment = null): InvoiceService
     {
-        return $this->files;
+        return new InvoiceService($this->client($environment));
     }
 
     /**
-     * Build, sign and submit documents.
+     * Onboard an EGS unit, run the compliance checks, renew its CSID.
      */
-    public function invoices(): InvoiceService
+    public function onboarding(): Onboarding
     {
-        return $this->invoices;
+        return new Onboarding($this);
+    }
+
+    /**
+     * The ZATCA API client of an environment (the configured one by default).
+     *
+     * Clients of other environments share the options (HTTP client, language) of the bound one.
+     */
+    public function client(?string $environment = null): Client
+    {
+        $client = $this->container->make(Client::class);
+
+        if ($environment === null || $environment === $client->getEnvironment()) {
+            return $client;
+        }
+
+        return new Client($environment, $client->getOptions());
     }
 }
