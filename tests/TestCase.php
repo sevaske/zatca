@@ -28,6 +28,8 @@ class TestCase extends Orchestra
 
     protected function defineEnvironment($app): void
     {
+        // in-memory SQLite in every testbench version (testbench 8 defaults to mysql)
+        $app['config']->set('database.default', 'testing');
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
         $app['config']->set('zatca.env', 'sandbox');
     }
