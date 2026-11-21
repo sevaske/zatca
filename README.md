@@ -5,15 +5,15 @@
 [![License](https://img.shields.io/packagist/l/sevaske/zatca.svg?style=flat-square)](LICENSE)
 
 Laravel integration for ZATCA (Fatoora) e-invoicing, phase 2 (Saudi Arabia). Onboard EGS units with one Artisan
-command, then issue and submit invoices, credit notes and debit notes. The package keeps each unit's invoice chain in
-your database, safely across queue workers and servers, for any number of units and sellers.
+command, then issue and submit invoices, credit notes and debit notes. Each unit's invoice chain is kept in your
+database and stays correct across queue workers and servers, for any number of units and sellers.
 
 ```php
-$document = Zatca::unit()->issue($invoiceData, owner: $order);   // ICV, PIH, signature, stored
+$document = Zatca::unit()->issue($invoiceData, owner: $order);   // counter, previous hash, signature, stored
 $document->submit();                                              // cleared or reported, outcome stored
 ```
 
-It is a Laravel layer over two framework-agnostic libraries:
+The package builds on two framework-agnostic libraries:
 
 | Package | Does |
 |---|---|
@@ -25,168 +25,317 @@ It is a Laravel layer over two framework-agnostic libraries:
 
 ## Contents
 
-- [Requirements and installation](#requirements-and-installation)
-- [Concepts](#concepts)
+- [Installation](#installation)
+- [How it works](#how-it-works)
 - [Onboarding a unit](#onboarding-a-unit)
 - [Issuing documents](#issuing-documents)
 - [Submitting documents](#submitting-documents)
+- [Working with documents](#working-with-documents)
 - [Several units and sellers](#several-units-and-sellers)
 - [Adopting an existing unit](#adopting-an-existing-unit)
 - [Renewing the CSID](#renewing-the-csid)
-- [The database](#the-database)
+- [Database reference](#database-reference)
+- [API reference](#api-reference)
 - [Without the database](#without-the-database)
-- [Configuration](#configuration)
+- [Configuration and commands](#configuration-and-commands)
 - [Testing your application](#testing-your-application)
 - [Upgrading from 1.x](#upgrading-from-1x)
 
-## Requirements and installation
+## Installation
 
-PHP 8.1+ (`dom`, `libxml`, `openssl`, `mbstring`), Laravel 10 to 13, and a database with row locks for concurrent
-issuing (MySQL, MariaDB, PostgreSQL, SQL Server).
+Requirements: PHP 8.1+ with `dom`, `libxml`, `openssl` and `mbstring`; Laravel 10 to 13. Concurrent issuing needs a
+database with row locks: MySQL, MariaDB, PostgreSQL or SQL Server. SQLite works for a single process.
 
 ```bash
 composer require sevaske/zatca
-php artisan zatca:install        # publishes config/zatca.php and the migration, offers to migrate
+php artisan zatca:install
 ```
 
-Or step by step: `php artisan vendor:publish --tag=zatca-config`, `--tag=zatca-migrations`, `php artisan migrate`.
+`zatca:install` publishes `config/zatca.php` and the migration and offers to run it. To do it by hand:
 
-## Concepts
+```bash
+php artisan vendor:publish --tag=zatca-config
+php artisan vendor:publish --tag=zatca-migrations
+php artisan migrate
+```
 
-- **EGS unit**: a device or software instance that issues documents for one seller (VAT number). It has its own
-  private key, its own certificate (**CSID**) and its own invoice chain. A seller may have many units; an application
-  may serve many sellers. Each unit is a row in `zatca_egs_units`.
-- **CSID**: the certificate ZATCA issues for the unit's CSR. It signs documents and authenticates API calls. A
-  *compliance* CSID is used for the compliance checks, then exchanged for a *production* CSID.
-- **Invoice chain**: every document a unit generates gets the next counter value (ICV) and the hash of the
-  previous document (PIH).
+## How it works
 
-The rules the package follows, from ZATCA's E-invoicing Detailed Technical Guideline (FAQ, pages 71-78):
+**EGS unit.** A device or software instance that issues documents for one seller (VAT number). A unit has its own
+private key, its own certificate (CSID) and its own invoice chain. A seller can have several units, and an
+application can serve several sellers. Each unit is a row in `zatca_egs_units` and belongs to one environment:
+`sandbox`, `simulation` or `production`.
 
-1. One chain per unit, covering all its documents: standard and simplified, invoices, credit and debit notes.
-2. The ICV goes up by one for every generated document and is never reused.
-3. The PIH is the hash of the document generated immediately before, **even if that one was rejected**: ZATCA
-   tracks the hashes of rejected documents too.
-4. A rejected document is never fixed in place. The correction is a new document: new UUID, new ICV, and its PIH is
-   the rejected document's hash.
-5. Documents may be submitted in any order, as long as they were generated in sequence. Gaps are investigated by
-   ZATCA and may lead to penalties.
-6. Submitting the same document twice is safe: ZATCA identifies it by UUID and hash.
-7. The first document of a unit uses the initial PIH, the base64 of the hex SHA-256 of `0`
-   (`NWZlY2Vi...OQ==`, see `InvoiceChain::INITIAL_HASH`).
-8. Standard (B2B) documents are cleared before the buyer gets them, and the buyer gets ZATCA's cleared XML.
-   Simplified (B2C) documents are reported within 24 hours.
+**CSID.** The certificate ZATCA issues for the unit's CSR. It signs documents and authenticates API calls.
+Onboarding first gets a *compliance* CSID, passes the compliance checks with it, then exchanges it for a *production*
+CSID. Only the production CSID signs and submits real documents.
+
+**Invoice chain.** Each document gets the next invoice counter value (ICV) and the hash of the previous document
+(PIH). ZATCA uses the chain to detect missing or altered documents.
+
+The package enforces these rules, taken from ZATCA's *E-invoicing Detailed Technical Guideline* (FAQ, pages 71-78):
+
+1. A unit has one chain for all its documents: standard and simplified, invoices, credit notes and debit notes.
+2. The ICV increases by one for each generated document and is never reused.
+3. The PIH is the hash of the document generated immediately before, **even if that document was rejected**. ZATCA
+   stores the hashes of rejected documents too.
+4. A rejected document is never fixed or deleted. The correction is a new document with a new UUID and ICV; its PIH
+   is the rejected document's hash.
+5. Documents can be submitted in any order, as long as they were generated in sequence. ZATCA checks the sequence
+   later; gaps are investigated and can lead to penalties.
+6. Submitting the same document again is safe: ZATCA identifies a document by its UUID and hash.
+7. A unit's first document uses the initial PIH: base64 of the hex SHA-256 of `0`
+   (`InvoiceChain::INITIAL_HASH`, `NWZlY2Vi...OQ==`).
+8. Standard (B2B) documents are cleared before they reach the buyer, and the buyer gets ZATCA's cleared XML.
+   Simplified (B2C) documents are reported within 24 hours of issuing.
+
+A document's life:
+
+```
+issue()  ──>  pending  ──submit()──>  reported | cleared      accepted, final
+                 │                    rejected                final; issue a corrected document
+                 └── network or API error: stays pending, submit() again
+```
 
 ## Onboarding a unit
 
-Get a one-time password (OTP) from the Fatoora portal of the environment (valid for one hour; in the sandbox it is
-`123345`) and run:
+Onboarding gives a unit its private key and production CSID. Do it once per unit and environment.
+
+### With the command
+
+Get a one-time password (OTP) for the environment, then run the command:
+
+| Environment | Where the OTP comes from |
+|---|---|
+| `sandbox` | not needed: the sandbox accepts `123345` (the command's default) |
+| `simulation` | the Fatoora simulation portal |
+| `production` | the Fatoora portal |
+
+An OTP is valid for one hour.
 
 ```bash
 php artisan zatca:onboard
 ```
 
-The command asks for the seller VAT number, the document types the unit will issue (`1000` standard, `0100`
-simplified, `1100` both) and the CSR details, then:
+The command asks for the seller's VAT number, the document types the unit will issue and the CSR details, then
+runs four steps:
 
-1. generates the private key and the CSR,
-2. requests the compliance CSID with the OTP,
-3. signs a sample of every declared document type and runs ZATCA's compliance checks,
-4. requests the production CSID.
+| Step | Saved on the unit |
+|---|---|
+| 1. Generate a private key and a CSR | `private_key`, `csr`, `csr_options` |
+| 2. Exchange the CSR and the OTP for a compliance CSID | `compliance_csid` |
+| 3. Sign a sample of each declared document type and send it to ZATCA's compliance checks | nothing; failed checks are printed with their codes |
+| 4. Exchange the compliance CSID for a production CSID | `production_csid` |
 
-Every step is saved on the unit. If a step fails (an expired OTP, a failed check), fix it and run the command again:
-it continues where it stopped. `--fresh` starts over with a new key and CSR, as long as the unit is not onboarded.
+Each step saves its result, so if one fails (an expired OTP, a failed check), fix the cause and run the command
+again: it continues from that step. The command stops early if the unit already has a production CSID; to renew it,
+use [`zatca:renew`](#renewing-the-csid).
 
-Units belong to the environment in `ZATCA_ENV` (`sandbox`, `simulation`, `production`) unless you pass `--env`. Name
-units when you have several (`php artisan zatca:onboard store-15`); without a name the unit is `default`. All answers
-are also options, so onboarding can be scripted:
+The samples are generated from the unit's VAT number and organization name: for each declared profile, an invoice,
+a credit note and a debit note of 100.00 SAR + 15% VAT. They use their own chain and are not stored.
+
+Without an argument the unit is called `default` (config `zatca.unit`). Name units when you have several:
+`php artisan zatca:onboard store-15`. The environment is `ZATCA_ENV` unless you pass `--env`.
+
+Every prompt has an option, so onboarding can run from a script (`--no-interaction` fails on any missing value
+instead of asking):
 
 ```bash
-php artisan zatca:onboard store-15 --env=simulation --otp=123456 --vat=399999999900003 --invoice-types=1100 \
+php artisan zatca:onboard store-15 --env=simulation --otp=123456 \
+    --vat=399999999900003 --invoice-types=1100 \
     --organization-name="Maximum Speed Tech Supply LTD" --organizational-unit="Riyadh Branch" \
     --common-name="POS-0001" --solution=MyErp --model=v1 --serial=POS-0001 \
     --address="King Fahd Road, Riyadh" --category="Supply activities" --no-interaction
 ```
 
-`php artisan zatca:units` lists the units with their state, last ICV, pending documents and CSID expiry.
+| Option | Meaning |
+|---|---|
+| `--vat` | seller VAT number: 15 digits, starting and ending with 3 |
+| `--invoice-types` | `1000` standard only, `0100` simplified only, `1100` both |
+| `--organization-name` | registered name of the seller |
+| `--organizational-unit` | branch name; in a VAT group, the TIN of the member |
+| `--common-name` | name of the unit |
+| `--solution`, `--model`, `--serial` | your solution, its version and the unit's serial number (unique per unit) |
+| `--address`, `--category` | branch address and business category |
+| `--country` | two-letter code, default `SA` |
+| `--name` | your own label for the unit |
+| `--fresh` | discard the key, CSR and compliance CSID and start over (only for a unit that is not onboarded yet) |
 
-<details>
-<summary>Onboarding from code, with your own compliance samples</summary>
+Run `php artisan zatca:units` to see every unit with its state (`new`, `CSR generated`, `compliance checks`,
+`onboarded`), last ICV, number of pending documents and CSID expiry date.
+
+### From code
+
+The steps are methods of `Zatca::onboarding()`. Use them to onboard from a UI, or to run the compliance checks with
+your own sample data:
 
 ```php
-$unit = EgsUnit::create(['key' => 'store-15', 'environment' => 'simulation', 'vat_number' => '399999999900003']);
+use Sevaske\Zatca\Facades\Zatca;
+use Sevaske\Zatca\Models\EgsUnit;
+
+$unit = EgsUnit::create([
+    'key' => 'store-15',
+    'environment' => 'simulation',
+    'vat_number' => '399999999900003',
+    'invoice_types' => '1100',
+]);
+
 $onboarding = Zatca::onboarding();
 
 $onboarding->generateCsr($unit, [
-    'organization_name' => 'Maximum Speed Tech Supply LTD', 'organizational_unit' => 'Riyadh Branch',
-    'common_name' => 'POS-0001', 'solution' => 'MyErp', 'model' => 'v1', 'serial' => 'POS-0001',
-    'address' => 'King Fahd Road, Riyadh', 'business_category' => 'Supply activities',
+    'organization_name' => 'Maximum Speed Tech Supply LTD',
+    'organizational_unit' => 'Riyadh Branch',
+    'common_name' => 'POS-0001',
+    'solution' => 'MyErp',
+    'model' => 'v1',
+    'serial' => 'POS-0001',
+    'address' => 'King Fahd Road, Riyadh',
+    'business_category' => 'Supply activities',
 ]);
+
 $onboarding->requestComplianceCsid($unit, $otp);
 
-foreach ($onboarding->runComplianceChecks($unit, $samples ?? null) as $label => $result) {
-    $result->isPassed();   // ComplianceCheckResult
+$results = $onboarding->runComplianceChecks($unit);   // or ($unit, ['my invoice' => $data, ...])
+
+foreach ($results as $label => $result) {
+    if (! $result->isPassed()) {
+        $errors = $result->getValidationResults()->getErrorMessages();   // "[BR-KSA-37] ..."
+    }
 }
 
 $onboarding->requestProductionCsid($unit);
 ```
 
-`$samples` is an array of invoice data keyed by a label; by default the package generates one invoice, credit note
-and debit note per declared profile. Samples form a chain of their own and are not stored.
-
-</details>
-
 ## Issuing documents
+
+### A complete example
+
+The application builds the document data, including all totals. The package adds the chain fields and signs. This
+simplified invoice (2 × 100.00 + 15% VAT) is valid as it is:
 
 ```php
 use Sevaske\Zatca\Facades\Zatca;
 
+$now = now('Asia/Riyadh')->format('Y-m-d H:i:s');
+
 $document = Zatca::unit()->issue([
-    'id' => 'INV-000123',
-    'issueDate' => now('Asia/Riyadh')->format('Y-m-d H:i:s'),
-    'issueTime' => now('Asia/Riyadh')->format('Y-m-d H:i:s'),
+    'id' => 'INV-000123',                                    // your invoice number
+    'issueDate' => $now,
+    'issueTime' => $now,
     'currencyCode' => 'SAR',
     'taxCurrencyCode' => 'SAR',
     'invoiceType' => ['invoice' => 'simplified', 'type' => 'invoice'],
-    'supplier' => [/* ... */],
-    'invoiceLines' => [/* ... */],
-    'taxTotal' => [/* ... */],
-    'legalMonetaryTotal' => [/* ... */],
+    'supplier' => [
+        'registrationName' => 'Maximum Speed Tech Supply LTD',
+        'taxId' => '399999999900003',                        // must be the unit's VAT number
+        'identificationId' => '1010010000',
+        'identificationType' => 'CRN',
+        'address' => [
+            'street' => 'King Fahd Road',
+            'buildingNumber' => '1234',                       // 4 digits
+            'subdivision' => 'Al Olaya',
+            'city' => 'Riyadh',
+            'postalZone' => '12345',                          // 5 digits
+            'country' => 'SA',
+        ],
+    ],
+    'paymentMeans' => ['code' => '10'],                      // 10 cash, 30 credit transfer, 48 card ...
+    'taxTotal' => [
+        'taxAmount' => 30.00,
+        'subTotals' => [[
+            'taxableAmount' => 200.00,
+            'taxAmount' => 30.00,
+            'taxCategory' => ['percent' => 15, 'taxScheme' => ['id' => 'VAT']],
+        ]],
+    ],
+    'legalMonetaryTotal' => [
+        'lineExtensionAmount' => 200.00,
+        'taxExclusiveAmount' => 200.00,
+        'taxInclusiveAmount' => 230.00,
+        'allowanceTotalAmount' => 0.00,
+        'prepaidAmount' => 0.00,
+        'payableAmount' => 230.00,
+    ],
+    'invoiceLines' => [[
+        'id' => 1,
+        'unitCode' => 'PCE',
+        'quantity' => 2,
+        'lineExtensionAmount' => 200.00,
+        'item' => [
+            'name' => 'Office chair',
+            'classifiedTaxCategory' => [['percent' => 15, 'taxScheme' => ['id' => 'VAT']]],
+        ],
+        'price' => ['amount' => 100.00, 'unitCode' => 'PCE'],
+        'taxTotal' => ['taxAmount' => 30.00, 'roundingAmount' => 230.00],
+    ]],
 ], owner: $order);
 ```
 
-You build the data and the totals (the field list, a worked example and the order of calculating totals are in the
-[php-zatca-xml data reference](https://github.com/sevaske/php-zatca-xml#invoice-data-reference)). `issue()`:
-
-1. validates the data: required fields, totals, lines. Invalid data throws `InvalidArgumentException` naming the
-   field, and nothing happens to the chain;
-2. checks that the unit may issue this profile and that the seller VAT number is the unit's;
-3. in one database transaction, with the unit's row locked: takes ICV = last + 1 and PIH = last hash, puts them into
-   the document (replacing any you passed), adds a UUID if there is none, signs it with the unit's key and production
-   CSID, stores it and moves the chain forward.
-
-The lock makes every other request or queue worker issuing for the same unit wait, on any number of servers, so
-counters never repeat or skip. Units do not block each other.
-
-The returned `Document` holds the signed XML byte for byte, its hash, UUID, ICV, PIH, QR code (render it as a QR
-image on the printout), profile, type and status `pending`.
-
-**Credit and debit notes** are issued the same way, with their type, a reference to the original invoice and the
-reason. They take their own place in the chain:
+A **standard** (B2B) document also needs the buyer and the delivery date:
 
 ```php
-$data['invoiceType'] = ['invoice' => 'standard', 'type' => 'credit'];     // or 'debit'
-$data['billingReferences'] = [['id' => $original->number]];
-$data['paymentMeans'] = ['code' => '10', 'note' => 'Returned goods'];     // the reason
-
-$note = Zatca::unit()->issue($data, owner: $refund);
+$data['invoiceType'] = ['invoice' => 'standard', 'type' => 'invoice'];
+$data['delivery'] = ['actualDeliveryDate' => $now];
+$data['customer'] = [
+    'registrationName' => 'Buyer Company LLC',
+    'taxId' => '399999999800003',
+    'address' => ['street' => 'Al Urubah Road', 'buildingNumber' => '7176', 'subdivision' => 'Al Olaya',
+        'city' => 'Riyadh', 'postalZone' => '12251', 'country' => 'SA'],
+];
 ```
 
-Amounts stay positive: the type expresses the correction. A note belongs to the same profile as the original.
+Leave out `uuid` and the `ICV` / `PIH` entries of `additionalDocuments`: the unit fills them in. Any you pass are
+replaced. The full field list, discounts, other VAT categories and the order in which to calculate totals are in the
+[php-zatca-xml data reference](https://github.com/sevaske/php-zatca-xml#invoice-data-reference). `issue()` also
+accepts a ready `Saleh7\Zatca\Invoice` object.
 
 > **Timezone.** `issueDate` and `issueTime` are parsed in the application timezone and written in UTC. Use
-> `Asia/Riyadh` as the application timezone or build the strings in it, otherwise ZATCA may warn
+> `Asia/Riyadh` as the application timezone, or build the strings in it as above. Otherwise ZATCA may warn
 > `invoiceTimeStamp_QRCODE_INVALID`.
+
+### What `issue()` does
+
+1. **Validates** the data: required fields, `taxInclusiveAmount = taxExclusiveAmount + taxAmount`, line amounts.
+2. **Checks the unit** may issue this profile (`invoice_types`).
+3. In one transaction, with the unit's row **locked** (`SELECT ... FOR UPDATE`):
+   - reads `last_icv` and `last_hash`, and sets ICV = `last_icv + 1` and PIH = `last_hash` (or the initial hash);
+   - adds a UUID if the data has none;
+   - signs the document with the unit's private key and production CSID;
+   - checks that the seller VAT number in the document is the unit's;
+   - stores the document with status `pending`, and saves its ICV and hash on the unit.
+4. Returns the `Document`.
+
+If any step fails, nothing is stored and no counter value is used:
+
+| Exception | Cause |
+|---|---|
+| `InvalidArgumentException` | invalid data (the message names the field), a profile the unit did not declare, or another seller's VAT number |
+| `Sevaske\Zatca\Exceptions\ZatcaConfigurationException` | the unit has no production CSID or private key |
+
+**Concurrency.** The lock makes every other process issuing for the same unit wait until the transaction commits,
+whether it is a web request, a queue worker or another server. Counters never repeat or skip, and each PIH is the
+hash of the real previous document. Different units never wait for each other.
+
+**Inside your own transaction.** `issue()` can run inside `DB::transaction()`, for example to create the order and
+its invoice together. The lock is then held until *your* transaction commits, so keep the transaction short. If it
+rolls back, the document and its counter value disappear together, which is correct because the document was never
+submitted. Never submit inside the transaction: dispatch the submission after the commit (see below).
+
+### Credit and debit notes
+
+A note uses the same data as an invoice, plus three fields: its type, the invoice it corrects and the reason. It
+takes the next position in the unit's chain like any other document.
+
+```php
+$data['invoiceType'] = ['invoice' => 'standard', 'type' => 'credit'];    // or 'debit'
+$data['billingReferences'] = [['id' => $original->number]];             // the corrected invoice
+$data['paymentMeans'] = ['code' => '10', 'note' => 'Returned goods'];    // the reason (required)
+
+$note = $original->unit->issue($data, owner: $refund);
+```
+
+Amounts stay positive: the type says whether it is a correction down or up. A note has the same profile as the
+invoice it corrects, and is issued by the same unit.
 
 ## Submitting documents
 
@@ -194,29 +343,66 @@ Amounts stay positive: the type expresses the correction. A note belongs to the 
 $document->submit();
 ```
 
-Standard documents are cleared, simplified ones reported. If ZATCA answers that clearance is deactivated (HTTP 303),
-the document is reported instead, with the `Clearance-Status: 0` header ZATCA expects. The outcome is stored:
+`submit()` clears standard documents and reports simplified ones, then stores ZATCA's answer on the document and
+returns it.
 
-| `status` | Meaning |
-|---|---|
-| `pending` | signed and stored, not accepted yet: never submitted, or the last attempt did not reach ZATCA |
-| `reported` | accepted (simplified, or standard while clearance is deactivated) |
-| `cleared` | accepted and stamped; `cleared_xml` is ZATCA's version and `qr` its QR code |
-| `rejected` | ZATCA found errors (`errors`); issue a corrected document as a new one |
+| `status` | Meaning | What to do |
+|---|---|---|
+| `pending` | not accepted yet: never submitted, or the last attempt failed before ZATCA answered | submit again |
+| `reported` | accepted: a simplified document, or a standard one while clearance is deactivated | nothing; check `warnings` |
+| `cleared` | accepted and stamped by ZATCA | give the buyer `buyerXml()`; check `warnings` |
+| `rejected` | ZATCA found errors, listed in `errors` | fix the cause and issue a new document |
 
-`warnings` holds the warnings of accepted documents (fix them in later documents), `attempts` and `submitted_at`
-count the tries. `$document->buyerXml()` is the XML to hand over: the cleared one for standard documents.
+`errors` and `warnings` are lists of `['code' => 'BR-KSA-37', 'category' => 'KSA', 'message' => '...']`. A document
+with warnings is accepted, but fix the cause in later documents. `attempts` counts the submissions and
+`submitted_at` holds the time of the last one.
 
-`submit()` is idempotent: a document that is reported, cleared or rejected is not sent again. Network failures and
-API errors (`Sevaske\ZatcaApi\Exception\ZatcaException`) are thrown after the attempt is counted, and the document
-stays `pending`: retry, typically from a queued job. Submitting outside the issuing transaction keeps the lock short
-and survives a ZATCA outage:
+**Idempotent.** A document that is `reported`, `cleared` or `rejected` is never sent again: calling `submit()` on it
+does nothing and makes no HTTP request. Submitting a `pending` document twice, for example from two workers, is
+harmless: ZATCA answers "already reported" (stored as `reported`) or returns the cleared invoice again.
+
+**Clearance deactivated.** If ZATCA has deactivated clearance for the taxpayer, it answers HTTP 303 to a clearance
+request. `submit()` then reports the document instead, with the `Clearance-Status: 0` header ZATCA requires. The
+status becomes `reported` and there is no cleared XML.
+
+### Errors and retries
+
+Errors that prevent ZATCA from answering are thrown. Before throwing, `submit()` counts the attempt; the document
+stays `pending`.
+
+| Exception (namespace `Sevaske\ZatcaApi\Exception`) | Cause | Retry? |
+|---|---|---|
+| `TransportException` | timeout, DNS, connection refused | yes |
+| `ServerException` (HTTP 5xx), `RateLimitException` (429) | ZATCA unavailable or throttling | yes, with a delay |
+| `AuthenticationException` (401) | wrong or revoked CSID, or a compliance CSID in production | no: fix the unit's credentials |
+| `ApiException` (other statuses) | unexpected HTTP error; `getStatusCode()`, `getErrors()`, `getResponseBody()` | investigate |
+
+All of them implement `Sevaske\ZatcaApi\Exception\ZatcaException`. A rejection (HTTP 400 with validation results)
+is not an exception: it is stored as `rejected`.
+
+### Submitting from a queue
+
+Submit outside the request that issued the document. The issuing transaction stays short, and a ZATCA outage only
+delays the submission:
 
 ```php
+use Illuminate\Support\Facades\DB;
+
 DB::transaction(function () use ($order, $data) {
     $document = Zatca::unit()->issue($data, owner: $order);
+
     SubmitZatcaDocument::dispatch($document)->afterCommit();
 });
+```
+
+```php
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Sevaske\Zatca\Models\Document;
+use Sevaske\ZatcaApi\Exception\AuthenticationException;
 
 class SubmitZatcaDocument implements ShouldQueue
 {
@@ -230,39 +416,77 @@ class SubmitZatcaDocument implements ShouldQueue
 
     public function handle(): void
     {
-        $this->document->submit();
+        try {
+            $this->document->submit();
+        } catch (AuthenticationException $e) {
+            $this->fail($e);   // retrying will not help: the credentials need fixing
+        }
     }
 }
 ```
 
-Simplified documents must be reported within 24 hours; a scheduled sweep catches anything left behind:
+Simplified documents must be reported within 24 hours. A scheduled job resubmits anything left `pending`:
 
 ```php
-Schedule::call(fn () => Document::pending()->where('created_at', '<', now()->subMinutes(15))
-    ->each(fn (Document $document) => SubmitZatcaDocument::dispatch($document)))->everyFifteenMinutes();
+use Illuminate\Support\Facades\Schedule;   // Laravel 11+; in Laravel 10 use the console kernel
+
+Schedule::call(function () {
+    Document::pending()
+        ->where('created_at', '<', now()->subMinutes(15))
+        ->each(fn (Document $document) => SubmitZatcaDocument::dispatch($document));
+})->everyFifteenMinutes();
 ```
 
-A **rejected** document stays in the chain as it is. Fix the data and issue a new document: it gets the next ICV
-and the rejected document's hash as PIH. For a rejected simplified invoice the buyer already has, ZATCA expects a
-credit note and a new invoice. The [rejection cheat sheet](https://github.com/sevaske/php-zatca-xml#common-rejections-and-their-causes)
-maps common codes to causes.
+### After a rejection
 
-Your models can list their documents with the `HasZatcaDocuments` trait:
+A rejected document stays in the chain unchanged. Fix the cause (the data, the seller's address, the totals) and
+issue a **new** document. It gets the next ICV and the rejected document's hash as its PIH.
+
+- **Standard invoice rejected:** it is not a valid tax invoice and the buyer has not received it. Issue the corrected
+  invoice with the current date.
+- **Simplified invoice rejected:** the buyer usually has it already. Issue the corrected document with the original
+  transaction date (FAQ, page 77). The FAQ also states that a "not reported" invoice is invalid and should be
+  cancelled with a credit note and replaced; check with your tax adviser which applies to you.
+
+The [rejection cheat sheet](https://github.com/sevaske/php-zatca-xml#common-rejections-and-their-causes) maps common
+error codes to their causes.
+
+## Working with documents
+
+**What to give the buyer.** `$document->buyerXml()` returns ZATCA's cleared XML for a cleared document, and the
+signed XML otherwise. `$document->qr` is the base64 QR payload; render it as a QR image on the printout. For a cleared
+document it is ZATCA's QR code taken from the cleared XML.
+
+**Your models.** Add `HasZatcaDocuments` to any model that owns documents:
 
 ```php
+use Sevaske\Zatca\Concerns\HasZatcaDocuments;
+
 class Order extends Model
 {
-    use \Sevaske\Zatca\Concerns\HasZatcaDocuments;
+    use HasZatcaDocuments;
 }
 
-$order->zatcaDocuments;          // all documents, including rejected ones
-$order->latestZatcaDocument;     // the most recent one
+$order->zatcaDocuments;          // every document of the order, rejected ones included
+$order->latestZatcaDocument;     // the most recent one: after a rejection, the correction
+```
+
+**Queries.** `Document` is an Eloquent model:
+
+```php
+use Sevaske\Zatca\Enums\DocumentStatus;
+use Sevaske\Zatca\Models\Document;
+
+Document::pending()->count();                                               // waiting for ZATCA
+Document::where('status', DocumentStatus::Rejected)->whereDate('created_at', today())->get();
+Document::where('number', 'INV-000123')->first();
+Zatca::unit('store-15')->documents()->orderByDesc('icv')->first();          // the unit's last document
 ```
 
 ## Several units and sellers
 
-Each unit has its own key, CSID and chain, so several units are just several rows. A marketplace that issues
-commission invoices as the platform and customer invoices on behalf of its stores could look like this:
+Each unit has its own key, CSID and chain, so several units are just several rows. For example, a marketplace that
+issues commission invoices as the platform and customer invoices on behalf of its stores:
 
 ```bash
 php artisan zatca:onboard platform --vat=300000000000003 --invoice-types=1000
@@ -270,136 +494,259 @@ php artisan zatca:onboard store-15 --vat=311111111100003 --invoice-types=1100
 ```
 
 ```php
-// a customer invoice of store 15: its own seller, unit and chain
-$invoice = Zatca::unit("store-{$order->store_id}")->issue(InvoiceData::forOrder($order), owner: $order);
+// a customer invoice of store 15: the store's unit and chain
+$invoice = Zatca::unit("store-{$order->store_id}")->issue($orderData, owner: $order);
 
 // the platform's commission invoice to the store
-$commission = Zatca::unit('platform')->issue(InvoiceData::forCommission($fee), owner: $fee);
+$commission = Zatca::unit('platform')->issue($commissionData, owner: $fee);
 
-// a credit note for the order: same unit as the invoice it corrects
-$note = $invoice->unit->issue(InvoiceData::forRefund($refund, original: $invoice), owner: $refund);
+// a credit note for the order: the unit that issued the invoice
+$note = $invoice->unit->issue($refundData, owner: $refund);
 ```
 
-`issue()` refuses data whose seller VAT number is not the unit's, so a document cannot end up in the wrong
-seller's chain. Units of different sellers, environments or branches never wait for each other.
+- `issue()` refuses data whose seller VAT number differs from the unit's, so a document cannot land in another
+  seller's chain or reach ZATCA with the wrong certificate.
+- Units are independent: a slow or failing unit does not block the others.
+- The same key can exist in several environments: `store-15` in `simulation` on staging and in `production` live.
+  `Zatca::unit()` looks in the environment of `ZATCA_ENV`.
 
 ## Adopting an existing unit
 
-An application that already issues documents (with 1.x, or with its own code) keeps its unit and continues its
-chain:
+An application that already issues documents, with 1.x or its own code, keeps its unit and continues its chain.
 
-1. Install the package and run the migration.
-2. Stop issuing documents for the unit (pause the queue workers, or deploy during a quiet moment).
-3. Find the **last generated** document of the unit, rejected ones included: the highest ICV. Note its ICV and hash.
-4. Import the unit's files and that position:
+1. **Install** the package and run the migration.
+2. **Stop issuing** for the unit: pause the queue workers or put the application in maintenance mode.
+3. **Find the last generated document** of the unit, rejected ones included: the one with the highest ICV. Take its
+   ICV and its hash (the `invoiceHash` that was sent to ZATCA, or the hash your signer returned).
+4. **Import** the private key, the production CSID and that position:
 
    ```bash
    php artisan zatca:import bayt --env=production --vat=399999999900003 --invoice-types=1100 \
-       --disk=local --private-key=zatca/private_key.pem --credentials=zatca/production_credentials.json \
+       --disk=local --private-key=zatca/private_key.pem \
+       --credentials=zatca/production_credentials.json \
        --icv=1532 --hash="kL0r...Zg=="
    ```
 
-   The command checks that the private key belongs to the certificate and reads credentials files written by 1.x and
-   2.x. It prints the ICV and PIH of the next document; check them. From code, the position can also be read from
-   the last signed XML: `$unit->continueAfter($lastSignedXml)->save()`.
-5. Switch your issuing code to `Zatca::unit('bayt')->issue(...)` and resume.
+   The command reads credentials files written by 1.x (`certificate`, `secret`) and 2.x (`binarySecurityToken`,
+   `secret`), checks that the private key belongs to the certificate, and prints the ICV and PIH of the next
+   document. Compare them with your records before going on.
+5. **Switch** your issuing code to `Zatca::unit('bayt')->issue(...)` and resume.
 
-Your old documents stay where they are. Notes that correct them refer to them by number in `billingReferences`.
-Never run the old and the new issuing code at the same time: two chains for one unit break the sequence.
+If you have the last document's signed XML rather than its hash, set the position from code. The ICV is read from
+the XML and the hash is recomputed:
+
+```php
+Zatca::unit('bayt')->continueAfter($lastSignedXml)->save();
+```
+
+Your old documents stay in your own tables. Notes that correct them refer to them by number in
+`billingReferences`. Never run the old and the new issuing code at the same time: two processes keeping separate
+chains for one unit break the sequence.
+
+`zatca:import` refuses to overwrite an existing unit unless you pass `--force`. With `--force` it replaces the
+credentials and keeps the chain position. A new `--icv` / `--hash` is accepted only while the unit has no documents
+in this package.
 
 ## Renewing the CSID
 
-A production CSID expires (see `php artisan zatca:units` or `$unit->certificateExpiresAt()`). Get a renewal OTP from
-the Fatoora portal and run:
+A production CSID has an expiry date: see `php artisan zatca:units` or `$unit->certificateExpiresAt()`. Renew it
+before then with a renewal OTP from the Fatoora portal:
 
 ```bash
 php artisan zatca:renew store-15 --otp=123456
 ```
 
-A new private key and CSR are generated with the details of the previous CSR (an imported unit is asked for them
-once), and the key and the CSID are replaced together. The chain continues. If ZATCA asks for compliance checks
-first (HTTP 428), they run automatically.
+The command generates a new private key and CSR with the details of the previous CSR. An imported unit has none
+stored, so it asks for them once. It then replaces the key and the CSID in a single update. The chain continues
+unchanged. If ZATCA answers that compliance checks are needed first (HTTP 428), they run automatically with
+generated samples.
 
-## The database
+From code: `Zatca::onboarding()->renew($unit, $otp)`.
 
-**`zatca_egs_units`**: `key`, `environment` (unique together), `name`, `vat_number`, `invoice_types`, `csr_options`,
-`csr`, `private_key`, `compliance_csid`, `production_csid`, `last_icv`, `last_hash`.
+## Database reference
 
-**`zatca_documents`**: `egs_unit_id`, `owner_type` / `owner_id` (your model), `uuid` (unique), `icv` (unique per
-unit), `pih`, `hash`, `number`, `profile` (`standard` / `simplified`), `type` (`invoice` / `credit` / `debit`),
-`billing_reference`, `issued_at`, `xml`, `cleared_xml`, `qr`, `status`, `errors`, `warnings`, `attempts`,
-`submitted_at`.
+### `zatca_egs_units`
 
-The signed part of a document (unit, UUID, ICV, PIH, hash, XML, profile, type) cannot be updated: the model throws.
-Units cannot be deleted while they have documents.
+| Column | Content |
+|---|---|
+| `key` | your identifier: `default`, `store-15` ...; unique together with `environment` |
+| `environment` | `sandbox`, `simulation` or `production` |
+| `name` | your label |
+| `vat_number` | seller VAT number, as in the CSR |
+| `invoice_types` | `1000`, `0100` or `1100` |
+| `csr_options` | CSR details, reused for renewals |
+| `csr` | the CSR (PEM) |
+| `private_key` | encrypted |
+| `compliance_csid`, `production_csid` | encrypted JSON: `binarySecurityToken`, `secret` (and `requestId`) |
+| `last_icv` | ICV of the last generated document; `0` before the first one |
+| `last_hash` | hash of the last generated document; `null` before the first one |
 
-**Credentials.** The private key and the CSIDs are stored in the unit's row, encrypted with your application key
-(Laravel's `encrypted` casts), and hidden from `toArray()` / JSON. Keeping them in the database rather than in files
-means every server and worker reads the same credentials without a shared disk, and a renewal replaces the key and
-the CSID in one atomic update. In exchange the `APP_KEY` protects them: back it up with the database, keep it out of
-the repository, and re-encrypt when you rotate it (Laravel 11+ reads values encrypted with `APP_PREVIOUS_KEYS`).
-To keep them in a vault instead, extend the model and replace the casts.
+### `zatca_documents`
 
-**Custom tables and models.** Table names, the connection and the model classes are configurable. Extend the models
-to add relations or casts:
+| Column | Content |
+|---|---|
+| `egs_unit_id` | the unit; units with documents cannot be deleted |
+| `owner_type`, `owner_id` | your model (nullable) |
+| `uuid` | unique |
+| `icv` | unique per unit |
+| `pih`, `hash` | previous hash and this document's hash |
+| `number` | your invoice number (`id` in the data) |
+| `profile` | `standard` or `simplified` (`Profile` enum) |
+| `type` | `invoice`, `credit` or `debit` (`DocumentType` enum) |
+| `billing_reference` | numbers of the invoices a note refers to |
+| `issued_at` | issue date and time |
+| `xml` | the signed XML, byte for byte |
+| `cleared_xml` | ZATCA's cleared XML (cleared documents) |
+| `qr` | QR payload, base64 |
+| `status` | `DocumentStatus` enum |
+| `errors`, `warnings` | ZATCA's messages, JSON |
+| `attempts`, `submitted_at` | number and time of submissions |
+
+The signed columns (`egs_unit_id`, `uuid`, `icv`, `pih`, `hash`, `profile`, `type`, `xml`, `qr`) cannot change after
+signing: saving a change throws `LogicException`. The only exception is `qr`, which is replaced together with the
+cleared XML.
+
+### Credentials
+
+The private key and the CSIDs are encrypted with the application key (Laravel's `encrypted` casts) and hidden from
+`toArray()` and JSON. Commands never print them.
+
+They are stored in the database rather than in files for two reasons: every server and worker reads the same
+credentials without a shared disk, and a renewal replaces the key and the CSID in one atomic update. The consequence
+is that `APP_KEY` protects them:
+
+- back up `APP_KEY` together with the database: without it the credentials cannot be decrypted, and the unit has to
+  be onboarded again;
+- when you rotate `APP_KEY`, re-encrypt the units, or keep the old key in `APP_PREVIOUS_KEYS` (Laravel 11+).
+
+To store them elsewhere, such as a vault, extend the model and replace the casts.
+
+### Custom tables, connection and models
+
+Table names and the connection are set in `config/zatca.php`, and the models can be replaced by subclasses, for
+example to link units to your stores:
 
 ```php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
 class EgsUnit extends \Sevaske\Zatca\Models\EgsUnit
 {
     public function store(): BelongsTo
     {
-        return $this->belongsTo(Store::class);   // add a store_id column to the published migration
+        return $this->belongsTo(Store::class);   // add store_id to the published migration
     }
 }
-
-// config/zatca.php
-'models' => ['unit' => App\Models\EgsUnit::class, 'document' => Sevaske\Zatca\Models\Document::class],
 ```
+
+```php
+// config/zatca.php
+'models' => [
+    'unit' => App\Models\EgsUnit::class,
+    'document' => Sevaske\Zatca\Models\Document::class,
+],
+```
+
+## API reference
+
+### `Zatca` facade
+
+| Method | Returns |
+|---|---|
+| `unit(?string $key = null)` | the `EgsUnit` with this key in the configured environment (default key: `zatca.unit`); throws `ZatcaConfigurationException` if there is none |
+| `invoices(?string $environment = null)` | `InvoiceService`: stateless build, sign, check and submit |
+| `onboarding()` | `Onboarding`: the onboarding steps and renewal |
+| `client(?string $environment = null)` | the zatca-api `Client` for an environment |
+
+### `EgsUnit`
+
+| Method | |
+|---|---|
+| `issue(array\|Invoice $data, ?Model $owner = null): Document` | sign and store the next document of the chain |
+| `documents(): HasMany` | the unit's documents |
+| `continueAfter(string $signedXml): static` | set the chain position after a document issued elsewhere (call `save()`) |
+| `previousHash(): string` | the PIH of the next document |
+| `allows(Profile $profile): bool` | whether the unit may issue standard or simplified documents |
+| `isOnboarded(): bool` | has a production CSID and a private key |
+| `certificateExpiresAt(): ?Carbon` | expiry of the production CSID |
+| `credentials()`, `complianceCredentials()` | `SigningCredentials` with the production or compliance CSID |
+| `productionCsid()`, `complianceCsid()` | the CSIDs as zatca-api objects |
+
+### `Document`
+
+| Method | |
+|---|---|
+| `submit(): static` | clear or report, store the outcome |
+| `buyerXml(): string` | cleared XML if any, otherwise the signed XML |
+| `hasWarnings(): bool` | |
+| `toSignedDocument(): SignedDocument` | for the stateless API |
+| `unit()`, `owner()` | relations |
+| `Document::pending()` | query scope: documents waiting for ZATCA |
+
+`$document->status->isFinal()` and `isAccepted()` describe the status.
+
+### `Onboarding`
+
+| Method | |
+|---|---|
+| `generateCsr(EgsUnit $unit, array $options)` | new private key and CSR; refuses an onboarded unit |
+| `requestComplianceCsid(EgsUnit $unit, string $otp)` | |
+| `runComplianceChecks(EgsUnit $unit, ?array $samples = null)` | `ComplianceCheckResult` per sample label |
+| `requestProductionCsid(EgsUnit $unit)` | |
+| `renew(EgsUnit $unit, string $otp, ?array $options = null)` | new key and production CSID; the chain continues |
 
 ## Without the database
 
-Everything above uses `InvoiceService`, which keeps no state. Use it directly when you store credentials and the
-chain yourself:
+`InvoiceService` does the per-document work and keeps no state; the units use it internally. Use it directly if you
+store the credentials and the chain yourself:
 
 ```php
+use Sevaske\Zatca\Facades\Zatca;
 use Sevaske\Zatca\Invoice\SigningCredentials;
 
 $credentials = new SigningCredentials($productionCsid, $privateKeyPem);
+$invoices = Zatca::invoices();                 // or Zatca::invoices('simulation')
 
-$xml = Zatca::invoices()->build($data);                            // unsigned XML
-$document = Zatca::invoices()->sign($data, $credentials);          // the data must contain ICV and PIH
-$result = Zatca::invoices()->submit($document, $credentials->csid);// ClearanceResult|ReportingResult
-Zatca::invoices()->check($sample, $complianceCsid);                // compliance check
-Zatca::invoices('simulation');                                     // another environment
+$xml = $invoices->build($data);                // unsigned XML
+$signed = $invoices->sign($data, $credentials);   // $data must contain its ICV and PIH
+$result = $invoices->submit($signed, $credentials->csid);   // ClearanceResult or ReportingResult
+$check = $invoices->check($signed, $complianceCsid);        // compliance check during onboarding
 ```
 
-`Zatca::client()` is the [zatca-api](https://github.com/sevaske/zatca-api#readme) client with every endpoint.
+`SignedDocument` holds `xml`, `hash`, `uuid`, `qrCode`, `profile` and `type`. `report()` and `clear()` choose the
+endpoint explicitly. `$credentials->keyMatchesCertificate()` checks that the key belongs to the certificate.
 
-## Configuration
+For any other endpoint, `Zatca::client()` returns the [zatca-api](https://github.com/sevaske/zatca-api#readme)
+client.
+
+## Configuration and commands
 
 | Key | Env | Default | |
 |---|---|---|---|
-| `env` | `ZATCA_ENV` | `sandbox` | environment of `Zatca::unit()` and the commands |
-| `unit` | `ZATCA_UNIT` | `default` | key of the unit `Zatca::unit()` returns without arguments |
-| `language` | `ZATCA_LANGUAGE` | `en` | language of ZATCA validation messages: `en` or `ar` |
-| `clearance_enabled` | `ZATCA_CLEARANCE_ENABLED` | `true` | `false` only while ZATCA has deactivated clearance for you: standard documents are then reported |
+| `env` | `ZATCA_ENV` | `sandbox` | environment of `Zatca::unit()` and of the commands |
+| `unit` | `ZATCA_UNIT` | `default` | key of the unit `Zatca::unit()` returns without an argument |
+| `language` | `ZATCA_LANGUAGE` | `en` | language of ZATCA's validation messages: `en` or `ar` |
+| `clearance_enabled` | `ZATCA_CLEARANCE_ENABLED` | `true` | set to `false` only while ZATCA has deactivated clearance for you: standard documents are then reported directly |
 | `http.timeout` | `ZATCA_HTTP_TIMEOUT` | `60` | seconds |
 | `http.connect_timeout` | `ZATCA_HTTP_CONNECT_TIMEOUT` | `10` | seconds |
-| `database.connection` | `ZATCA_DB_CONNECTION` | default connection | |
+| `database.connection` | `ZATCA_DB_CONNECTION` | the default connection | |
 | `database.tables.units` | | `zatca_egs_units` | |
 | `database.tables.documents` | | `zatca_documents` | |
 | `models.unit`, `models.document` | | the package's models | your subclasses |
 
 | Command | |
 |---|---|
-| `zatca:onboard {unit?}` | onboard a unit; resumable |
-| `zatca:renew {unit?}` | renew the production CSID |
+| `zatca:onboard {unit?}` | onboard a unit; continues an interrupted onboarding |
+| `zatca:renew {unit?} --otp=` | renew the production CSID |
 | `zatca:import {unit?}` | adopt a unit onboarded elsewhere and continue its chain |
-| `zatca:units` | list units, onboarding state, last ICV, pending documents, CSID expiry |
+| `zatca:units [--env=]` | list the units |
+
+Every command accepts `--env`; `php artisan help <command>` lists all options.
 
 ## Testing your application
 
-Bind an API client backed by a mock HTTP handler; no network is involved:
+Bind an API client with a mock HTTP handler. No network is used:
 
 ```php
 use GuzzleHttp\Client as Guzzle;
@@ -418,35 +765,40 @@ $this->app->instance(Client::class, Client::sandbox(
 ));
 ```
 
-Clients of other environments reuse its options, so the mock serves every unit. Signing needs a key and a
-certificate; onboard a unit in the sandbox once, or create one with a self-signed certificate as the package's
-tests do (`tests/Fixtures/Credentials.php`).
+Clients for other environments reuse these options, so the mock also answers for units in `simulation` or
+`production`.
 
-The package's own opt-in tests:
+Signing needs a private key and a certificate. Either onboard a unit in the sandbox once, or create one with a
+self-signed certificate, as the package's own tests do in `tests/Fixtures/Credentials.php`.
+
+The package's opt-in tests:
 
 ```bash
-ZATCA_MYSQL=1 vendor/bin/pest --group=mysql      # concurrent issuing against MySQL (pcntl)
+ZATCA_MYSQL=1 vendor/bin/pest --group=mysql      # parallel processes issuing for one unit, on MySQL (needs pcntl)
 ZATCA_LIVE=1 vendor/bin/pest --group=sandbox     # onboarding, issuing and submitting in the ZATCA sandbox
 ```
 
 ## Upgrading from 1.x
 
-2.x is a rewrite on top of zatca-api v3 and php-zatca-xml v4, centred on EGS units stored in the database.
+2.x is a rewrite on top of zatca-api v3 and php-zatca-xml v4. Credentials and the invoice chain now live in the
+database, in EGS units.
 
-1. Publish and run the migration (`php artisan zatca:install`).
-2. Import your unit from its files and continue its chain: see [Adopting an existing unit](#adopting-an-existing-unit).
+1. Run `php artisan zatca:install` to publish the config and the migration.
+2. Import your unit from its files and continue its chain, as described in
+   [Adopting an existing unit](#adopting-an-existing-unit).
 3. Replace the calls:
 
 | 1.x | 2.x |
 |---|---|
-| files on a disk (`Zatca::files()`) | an EGS unit in the database (`Zatca::unit()`), imported with `zatca:import` |
-| ICV / PIH kept by your application | kept by the unit: `Zatca::unit()->issue($data)` |
+| CSR, key and credentials files (`Zatca::files()`) | an EGS unit in the database (`Zatca::unit()`), imported with `zatca:import` |
+| ICV and PIH kept by the application | kept by the unit: `Zatca::unit()->issue($data)` |
 | `api()->reporting(...)`, `api()->clearance(...)` | `$document->submit()` |
 | `zatca:generate-csr`, `zatca:compliance-certificate`, `zatca:production-certificate` | `zatca:onboard` |
 | `Zatca::api()` | `Zatca::client()` (`Sevaske\ZatcaApi\Client`) |
 | `Http::zatca()` | removed |
 
-Removed config keys: `storage.*`, `invoices_disk`. Rejections and "already reported" are results, not exceptions.
+The `storage.*` and `invoices_disk` config keys are gone. Rejections and "already reported" answers are now results
+stored on the document, not exceptions.
 
 ## License
 

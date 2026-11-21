@@ -25,7 +25,7 @@ class ImportCommand extends ZatcaCommand
         {--csr= : path of the CSR (optional)}
         {--icv=0 : counter value (ICV) of the last document the unit generated, accepted or rejected}
         {--hash= : hash of that document (its PIH for the next one)}
-        {--force : replace the credentials of an existing unit (the chain is kept)}';
+        {--force : replace the credentials of an existing unit}';
 
     protected $description = 'Import an EGS unit onboarded elsewhere: private key, production CSID and the position of its invoice chain.';
 
@@ -75,13 +75,19 @@ class ImportCommand extends ZatcaCommand
             'csr' => $this->option('csr') ? $disk->get((string) $this->option('csr')) : $unit->csr,
         ]);
 
-        // a unit that already issued documents here keeps its chain
-        if (! $unit->documents()->exists()) {
-            $icv = (int) $this->option('icv');
-            $hash = $this->option('hash') ?: null;
+        $icv = (int) $this->option('icv');
+        $hash = $this->option('hash') ?: null;
 
-            if (($icv > 0) !== ($hash !== null) || ($hash !== null && strlen((string) base64_decode($hash, true)) !== 32)) {
-                $this->components->error('Give --icv and --hash of the last generated document together; the hash is a base64 SHA-256 digest.');
+        if (($icv > 0) !== ($hash !== null) || ($hash !== null && strlen((string) base64_decode($hash, true)) !== 32)) {
+            $this->components->error('Give --icv and --hash of the last generated document together; the hash is a base64 SHA-256 digest.');
+
+            return self::FAILURE;
+        }
+
+        // a unit that issued documents here keeps its chain; an existing one keeps its position unless a new one is given
+        if ($hash !== null || ! $unit->exists) {
+            if ($unit->documents()->exists()) {
+                $this->components->error("EGS unit \"{$unit->key}\" has documents already: its chain position cannot be changed.");
 
                 return self::FAILURE;
             }

@@ -177,6 +177,24 @@ it('refuses to import a key that does not belong to the certificate', function (
     expect(EgsUnit::query()->count())->toBe(0);
 });
 
+it('keeps the chain position when credentials are imported again', function () {
+    Storage::fake('local');
+    Storage::disk('local')->put('zatca/private_key.pem', Credentials::production()->privateKey());
+    Storage::disk('local')->put('zatca/production_credentials.json', json_encode(Credentials::production()->csid->toArray()));
+    $hash = base64_encode(hash('sha256', 'last', true));
+
+    $this->artisan('zatca:import', ['--vat' => '399999999900003', '--icv' => 7, '--hash' => $hash, '-n' => true])->assertSuccessful();
+    $this->artisan('zatca:import', ['--vat' => '399999999900003', '--force' => true, '-n' => true])->assertSuccessful();
+
+    expect(EgsUnit::query()->firstOrFail()->last_icv)->toBe(7);
+
+    EgsUnit::query()->firstOrFail()->issue(InvoiceData::make());
+
+    $this->artisan('zatca:import', ['--vat' => '399999999900003', '--force' => true, '--icv' => 1, '--hash' => $hash, '-n' => true])
+        ->expectsOutputToContain('cannot be changed')
+        ->assertFailed();
+});
+
 it('refuses an ICV without the hash', function () {
     Storage::fake('local');
     Storage::disk('local')->put('zatca/private_key.pem', Credentials::production()->privateKey());
