@@ -9,14 +9,9 @@ use Sevaske\Zatca\Tests\Fixtures\Credentials;
 use Sevaske\Zatca\Tests\Fixtures\InvoiceData;
 use Symfony\Component\Console\Exception\InvalidOptionException;
 
-function apiJson(array $body, int $status = 200): Response
-{
-    return new Response($status, ['Content-Type' => 'application/json'], json_encode($body));
-}
-
 function passed(): Response
 {
-    return apiJson(['validationResults' => ['status' => 'PASS'], 'reportingStatus' => 'REPORTED', 'clearanceStatus' => 'CLEARED']);
+    return zatcaJson(200, ['validationResults' => ['status' => 'PASS'], 'reportingStatus' => 'REPORTED', 'clearanceStatus' => 'CLEARED']);
 }
 
 function onboardOptions(array $overrides = []): array
@@ -40,9 +35,9 @@ function onboardOptions(array $overrides = []): array
 
 it('onboards a unit in one command', function () {
     $this->fakeZatca(
-        apiJson(Credentials::response('compliance')),
+        zatcaJson(200, Credentials::response('compliance')),
         passed(), passed(), passed(),                           // simplified invoice, credit and debit note
-        apiJson(Credentials::response('production')),
+        zatcaJson(200, Credentials::response('production')),
     );
 
     $this->artisan('zatca:onboard', onboardOptions())
@@ -64,15 +59,15 @@ it('onboards a unit in one command', function () {
 
 it('continues an interrupted onboarding where it stopped', function () {
     $this->fakeZatca(
-        apiJson(Credentials::response('compliance')),
-        passed(), passed(), apiJson(['validationResults' => ['status' => 'ERROR', 'errorMessages' => [['code' => 'BR-KSA-37', 'message' => 'bad address']]]], 400),
+        zatcaJson(200, Credentials::response('compliance')),
+        passed(), passed(), zatcaJson(400, ['validationResults' => ['status' => 'ERROR', 'errorMessages' => [['code' => 'BR-KSA-37', 'message' => 'bad address']]]]),
     );
 
     $this->artisan('zatca:onboard', onboardOptions())
         ->expectsOutputToContain('[BR-KSA-37] bad address')
         ->assertFailed();
 
-    $this->fakeZatca(passed(), passed(), passed(), apiJson(Credentials::response('production')));
+    $this->fakeZatca(passed(), passed(), passed(), zatcaJson(200, Credentials::response('production')));
 
     $this->artisan('zatca:onboard', ['unit' => 'riyadh', '-n' => true])->assertSuccessful();
 
@@ -102,7 +97,7 @@ it('renews the CSID with a new key and keeps the chain', function () {
     ]]);
     $unit->issue(InvoiceData::make());
     $oldKey = $unit->credentials()->privateKey();
-    $this->fakeZatca(apiJson(Credentials::response('renewed')));
+    $this->fakeZatca(zatcaJson(200, Credentials::response('renewed')));
 
     $this->artisan('zatca:renew', ['unit' => 'riyadh', '--otp' => '123456'])->assertSuccessful();
 
@@ -120,9 +115,9 @@ it('runs the compliance checks when the renewal asks for them', function () {
         'address' => 'Riyadh', 'business_category' => 'Supply',
     ]]);
     $this->fakeZatca(
-        apiJson(['dispositionMessage' => 'NOT_COMPLIANT'] + Credentials::response('renewal-compliance'), 428),
+        zatcaJson(428, ['dispositionMessage' => 'NOT_COMPLIANT'] + Credentials::response('renewal-compliance')),
         passed(), passed(), passed(),
-        apiJson(Credentials::response('renewed')),
+        zatcaJson(200, Credentials::response('renewed')),
     );
 
     $this->artisan('zatca:renew', ['unit' => 'riyadh', '--otp' => '123456'])->assertSuccessful();

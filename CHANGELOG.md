@@ -20,6 +20,7 @@ A rewrite on top of zatca-api v3 and php-zatca-xml v4, centred on EGS units stor
 - `zatca:onboard` (key, CSR, compliance CSID, generated compliance samples, production CSID; resumable),
   `zatca:renew`, `zatca:import` (adopt a unit onboarded elsewhere and continue its chain), `zatca:units`.
 - `SigningCredentials`: sign with any unit's CSID and private key. `InvoiceChain::INITIAL_HASH`.
+- Events `DocumentIssued` and `DocumentSubmitted` (ZATCA's decision), dispatched after the transaction commits.
 - `HasZatcaDocuments` trait for the application's models. Configurable tables, connection and models.
 
 ### Changed

@@ -30,6 +30,7 @@ The package builds on two framework-agnostic libraries:
 - [Onboarding a unit](#onboarding-a-unit)
 - [Issuing documents](#issuing-documents)
 - [Submitting documents](#submitting-documents)
+- [Events](#events)
 - [Working with documents](#working-with-documents)
 - [Several units and sellers](#several-units-and-sellers)
 - [Adopting an existing unit](#adopting-an-existing-unit)
@@ -303,7 +304,8 @@ accepts a ready `Saleh7\Zatca\Invoice` object.
    - signs the document with the unit's private key and production CSID;
    - checks that the seller VAT number in the document is the unit's;
    - stores the document with status `pending`, and saves its ICV and hash on the unit.
-4. Returns the `Document`.
+4. After the commit, dispatches [`DocumentIssued`](#events).
+5. Returns the `Document`.
 
 If any step fails, nothing is stored and no counter value is used:
 
@@ -450,6 +452,50 @@ issue a **new** document. It gets the next ICV and the rejected document's hash 
 
 The [rejection cheat sheet](https://github.com/sevaske/php-zatca-xml#common-rejections-and-their-causes) maps common
 error codes to their causes.
+
+## Events
+
+| Event (namespace `Sevaske\Zatca\Events`) | Dispatched when | Typical listener |
+|---|---|---|
+| `DocumentIssued` | `issue()` stored a document (status `pending`) | queue the submission |
+| `DocumentSubmitted` | ZATCA decided on a document: `cleared`, `reported` or `rejected` | send `buyerXml()` to the buyer, alert someone about a rejection, update your order |
+
+Both carry the document as `$event->document`. The package registers no listeners of its own.
+
+**After the commit.** Both events wait until the database transaction commits, including a transaction of yours
+around `issue()`. If it rolls back, the event is never dispatched, so a listener never sees a document that does not
+exist.
+
+**Once per decision.** `DocumentSubmitted` is dispatched when the status becomes final. Calling `submit()` on a
+decided document dispatches nothing, and neither does an attempt that failed with an exception: the document stays
+`pending` and the retry dispatches the event when ZATCA answers.
+
+Submitting every issued document from one place, instead of where each document is issued:
+
+```php
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Notification;
+use Sevaske\Zatca\Enums\DocumentStatus;
+use Sevaske\Zatca\Events\DocumentIssued;
+use Sevaske\Zatca\Events\DocumentSubmitted;
+
+// in a service provider's boot()
+Event::listen(fn (DocumentIssued $event) => SubmitZatcaDocument::dispatch($event->document));
+
+Event::listen(function (DocumentSubmitted $event) {
+    $document = $event->document;
+
+    match ($document->status) {
+        DocumentStatus::Rejected => Notification::route('mail', 'accounting@example.com')
+            ->notify(new ZatcaDocumentRejected($document)),
+        DocumentStatus::Cleared => $document->owner?->sendInvoiceToBuyer($document->buyerXml()),
+        default => null,
+    };
+});
+```
+
+`SubmitZatcaDocument` is the job from [Submitting from a queue](#submitting-from-a-queue); the notification and the
+owner's method are yours. A listener that does slow work should implement `ShouldQueue`.
 
 ## Working with documents
 
@@ -767,6 +813,17 @@ $this->app->instance(Client::class, Client::sandbox(
 
 Clients for other environments reuse these options, so the mock also answers for units in `simulation` or
 `production`.
+
+To assert the events without running your listeners, fake only the package's events. A bare `Event::fake()` also
+silences Eloquent model events, including the guard that keeps signed documents unchanged:
+
+```php
+Event::fake([DocumentIssued::class, DocumentSubmitted::class]);
+
+// ... issue and submit
+
+Event::assertDispatched(DocumentSubmitted::class, fn ($event) => $event->document->status === DocumentStatus::Rejected);
+```
 
 Signing needs a private key and a certificate. Either onboard a unit in the sandbox once, or create one with a
 self-signed certificate, as the package's own tests do in `tests/Fixtures/Credentials.php`.

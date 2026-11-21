@@ -10,6 +10,7 @@ use InvalidArgumentException;
 use Saleh7\Zatca\Invoice;
 use Sevaske\Zatca\Enums\DocumentStatus;
 use Sevaske\Zatca\Enums\Profile;
+use Sevaske\Zatca\Events\DocumentIssued;
 use Sevaske\Zatca\Exceptions\ZatcaConfigurationException;
 use Sevaske\Zatca\Invoice\DocumentXml;
 use Sevaske\Zatca\Invoice\InvoiceChain;
@@ -85,7 +86,8 @@ class EgsUnit extends Model
      * while the unit's row is locked, so concurrent requests and queue workers on any number of servers
      * get consecutive counters.
      *
-     * Submit the returned document after the transaction commits: {@see Document::submit()}.
+     * Submit the returned document after the transaction commits: {@see Document::submit()}. A
+     * {@see DocumentIssued} event is dispatched once it has.
      *
      * @param  array<string, mixed>|Invoice  $invoice  data as accepted by php-zatca-xml's InvoiceMapper, or an Invoice
      * @param  Model|null  $owner  your model the document belongs to (an order, a note ...)
@@ -103,7 +105,7 @@ class EgsUnit extends Model
         $invoice = $invoices->invoice($invoice);
         $this->ensureAllows(Profile::from($invoice->getInvoiceType()?->getInvoice() ?? 'simplified'));
 
-        return $this->getConnection()->transaction(function () use ($invoices, $invoice, $owner) {
+        $document = $this->getConnection()->transaction(function () use ($invoices, $invoice, $owner) {
             // other processes issuing for this unit wait here until the transaction commits
             /** @var static $unit */
             $unit = static::query()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
@@ -138,6 +140,10 @@ class EgsUnit extends Model
 
             return $document->setRelation('unit', $this);
         });
+
+        event(new DocumentIssued($document));
+
+        return $document;
     }
 
     /**

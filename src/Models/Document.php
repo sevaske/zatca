@@ -11,6 +11,7 @@ use LogicException;
 use Sevaske\Zatca\Enums\DocumentStatus;
 use Sevaske\Zatca\Enums\DocumentType;
 use Sevaske\Zatca\Enums\Profile;
+use Sevaske\Zatca\Events\DocumentSubmitted;
 use Sevaske\Zatca\Invoice\DocumentXml;
 use Sevaske\Zatca\Invoice\SignedDocument;
 use Sevaske\Zatca\Zatca;
@@ -124,7 +125,7 @@ class Document extends Model
      * Idempotent: a document ZATCA has already decided on is not sent again. Sending the same document twice is
      * safe anyway, ZATCA identifies it by its UUID and hash. Network and API errors are thrown after the attempt
      * is counted; retry them, typically from your queued job. Do not call it inside the transaction that issued
-     * the document.
+     * the document. When ZATCA has decided, a {@see DocumentSubmitted} event is dispatched.
      *
      * @throws ZatcaException on transport and API errors (the document stays pending)
      */
@@ -142,6 +143,8 @@ class Document extends Model
             ->submit($this->toSignedDocument(), $unit->productionCsid());
 
         $this->record($result)->save();
+
+        event(new DocumentSubmitted($this));
 
         return $this;
     }

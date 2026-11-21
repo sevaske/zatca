@@ -2,7 +2,6 @@
 
 use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Psr7\Request;
-use GuzzleHttp\Psr7\Response;
 use Sevaske\Zatca\Enums\DocumentStatus;
 use Sevaske\Zatca\Facades\Zatca;
 use Sevaske\Zatca\Tests\Fixtures\Credentials;
@@ -10,20 +9,6 @@ use Sevaske\Zatca\Tests\Fixtures\InvoiceData;
 use Sevaske\ZatcaApi\Client;
 use Sevaske\ZatcaApi\Exception\TransportException;
 use Sevaske\ZatcaApi\Response\ReportingResult;
-
-function zatcaJson(int $status, array $body): Response
-{
-    return new Response($status, ['Content-Type' => 'application/json'], json_encode($body));
-}
-
-function rejection(string $statusKey): Response
-{
-    return zatcaJson(400, [$statusKey => str_starts_with($statusKey, 'clear') ? 'NOT_CLEARED' : 'NOT_REPORTED', 'validationResults' => [
-        'status' => 'ERROR',
-        'warningMessages' => [],
-        'errorMessages' => [['type' => 'ERROR', 'code' => 'BR-KSA-37', 'category' => 'KSA', 'message' => 'bad address', 'status' => 'ERROR']],
-    ]]);
-}
 
 it('reports a simplified document and stores the outcome', function () {
     $this->fakeZatca(zatcaJson(202, ['reportingStatus' => 'REPORTED', 'validationResults' => [
