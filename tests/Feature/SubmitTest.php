@@ -29,11 +29,8 @@ it('reports a simplified document and stores the outcome', function () {
 
 it('clears a standard document and keeps ZATCA\'s cleared XML and QR code', function () {
     $issued = $this->unit()->issue(InvoiceData::make('standard'));
-    $cleared = str_replace('<cbc:ID>QR</cbc:ID>
-        <cac:Attachment>
-            <cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">'.$issued->qr, '<cbc:ID>QR</cbc:ID>
-        <cac:Attachment>
-            <cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">ZATCA-QR', $issued->xml);
+    // ZATCA stamps the cleared invoice with its own QR code; the line endings of the XML differ per OS
+    $cleared = str_replace($issued->qr, 'ZATCA-QR', $issued->xml);
     $this->fakeZatca(zatcaJson(200, ['clearanceStatus' => 'CLEARED', 'clearedInvoice' => base64_encode($cleared)]));
 
     $document = $issued->submit();

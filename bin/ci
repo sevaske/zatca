@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+#
+# Runs the GitHub Actions checks locally, in Docker, before you push:
+#
+#   tests    the matrix of run-tests.yml: every supported PHP x Laravel, prefer-lowest and prefer-stable
+#   mysql    the invoice chain under concurrency, against MySQL 8.4
+#   static   PHPStan and Pint
+#
+# Usage:
+#   bin/ci                    everything
+#   bin/ci tests [regex]      the matrix, optionally only jobs matching e.g. "php8.5" or "L10-prefer-lowest"
+#   bin/ci mysql
+#   bin/ci static
+#
+# Each job installs fresh dependencies with the latest Composer 2, as CI does. Logs go to build/ci/.
+# CI_JOBS sets how many jobs run at once (default 4). The windows-latest jobs cannot run in Docker.
+
+set -uo pipefail
+cd "$(dirname "$0")/.."
+
+LOGS=build/ci
+IMAGE=zatca-ci-1   # bump when the image below changes
+JOBS=${CI_JOBS:-4}
+
+testbench() {
+    case $1 in 13) echo 11 ;; 12) echo 10 ;; 11) echo 9 ;; 10) echo 8 ;; esac
+}
+
+# the exclusions of run-tests.yml
+supported() { # php laravel
+    case $2 in
+        13) [[ $1 != 8.1 && $1 != 8.2 ]] ;;
+        12 | 11) [[ $1 != 8.1 ]] ;;
+        10) [[ $1 != 8.5 ]] ;;
+    esac
+}
+
+# a PHP image with Composer, git, unzip, pcntl and pdo_mysql, no memory limit (as setup-php); built once per version
+image() {
+    docker image inspect "$IMAGE:$1" > /dev/null 2>&1 && return
+    echo "building $IMAGE:$1 ..."
+    docker build -q -t "$IMAGE:$1" - > /dev/null << EOF
+FROM php:$1-cli
+RUN apt-get update && apt-get install -y --no-install-recommends git unzip && rm -rf /var/lib/apt/lists/* \
+ && docker-php-ext-install pcntl pdo_mysql \
+ && echo 'memory_limit=-1' > /usr/local/etc/php/conf.d/ci.ini
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+EOF
+}
+
+# the files a CI checkout has, with your uncommitted changes: tracked and new files, nothing git ignores
+sources() {
+    git ls-files -z --cached --others --exclude-standard | while IFS= read -r -d '' file; do
+        [[ -e $file ]] && printf '%s\0' "$file"
+    done | COPYFILE_DISABLE=1 tar --null -T - -cf -
+}
+
+# runs a script in a fresh container on a copy of those files
+in_container() { # php script [docker options...]
+    local php=$1 script=$2
+    shift 2
+    sources | docker run -i --rm "$@" -v zatca-ci-cache:/cache -e COMPOSER_CACHE_DIR=/cache \
+        "$IMAGE:$php" bash -ec "
+            mkdir /app && tar -C /app -xf - --warning=no-unknown-keyword
+            cd /app
+            $script"
+}
+
+report() { # status name started
+    local seconds=$((SECONDS - $3))
+
+    if [[ $1 -eq 0 ]]; then
+        printf '  \033[32mok\033[0m    %-32s %4ss\n' "$2" "$seconds"
+    else
+        printf '  \033[31mFAIL\033[0m  %-32s %4ss  %s\n' "$2" "$seconds" "$LOGS/$2.log"
+    fi
+
+    return "$1"
+}
+
+# one job of the matrix, called through xargs
+test_job() { # php laravel stability
+    local name="php$1-L$2-$3" started=$SECONDS allow=''
+
+    # every Laravel 10 and 11 release has open security advisories, as in run-tests.yml
+    [[ $2 == 10 || $2 == 11 ]] && allow='composer config policy.advisories.block false'
+
+    in_container "$1" "
+        $allow
+        composer require 'laravel/framework:$2.*' 'orchestra/testbench:$(testbench "$2").*' --no-update -n -q
+        composer update --$3 --prefer-dist -n -q
+        composer show laravel/framework | grep versions
+        vendor/bin/pest --ci" > "$LOGS/$name.log" 2>&1
+    report $? "$name" "$started"
+}
+
+tests() { # [regex]
+    local jobs=() php laravel stability name
+
+    for laravel in 13 12 11 10; do
+        for php in 8.1 8.2 8.3 8.4 8.5; do
+            supported "$php" "$laravel" || continue
+            for stability in prefer-lowest prefer-stable; do
+                name="php$php-L$laravel-$stability"
+                [[ -z ${1:-} || $name =~ $1 ]] && jobs+=("$php $laravel $stability")
+            done
+        done
+    done
+
+    [[ ${#jobs[@]} -eq 0 ]] && echo "no job matches '$1'" && return 1
+
+    for php in $(printf '%s\n' "${jobs[@]}" | cut -d' ' -f1 | sort -u); do image "$php" || return 1; done
+
+    echo "tests: ${#jobs[@]} jobs, $JOBS at a time"
+    printf '%s\n' "${jobs[@]}" | xargs -P "$JOBS" -L 1 "$0" __test_job
+}
+
+mysql() {
+    local started=$SECONDS status
+
+    image 8.4 || return 1
+    docker network create zatca-ci > /dev/null 2>&1
+    docker rm -f zatca-ci-mysql > /dev/null 2>&1
+    docker run -d --rm --name zatca-ci-mysql --network zatca-ci -e MYSQL_ALLOW_EMPTY_PASSWORD=yes mysql:8.4 > /dev/null || return 1
+
+    # the image starts a temporary server without networking first: wait for the real one
+    for _ in $(seq 60); do
+        docker exec zatca-ci-mysql mysqladmin ping -h 127.0.0.1 --silent > /dev/null 2>&1 && break
+        sleep 2
+    done
+
+    in_container 8.4 "
+        composer update --prefer-stable --prefer-dist -n -q
+        vendor/bin/pest --group=mysql" \
+        --network zatca-ci -e ZATCA_MYSQL=1 -e DB_HOST=zatca-ci-mysql > "$LOGS/mysql.log" 2>&1
+    status=$?
+
+    docker stop zatca-ci-mysql > /dev/null 2>&1
+    report $status mysql "$started"
+}
+
+static() {
+    local started=$SECONDS
+
+    image 8.4 || return 1
+    in_container 8.4 "
+        composer update --prefer-dist -n -q
+        vendor/bin/phpstan analyse --no-progress
+        vendor/bin/pint --test" > "$LOGS/static.log" 2>&1
+    report $? static "$started"
+}
+
+if [[ ${1:-} == __test_job ]]; then
+    shift
+    test_job "$@"
+    exit
+fi
+
+command -v docker > /dev/null && docker info > /dev/null 2>&1 || { echo 'Docker is not running.'; exit 1; }
+mkdir -p "$LOGS"
+
+case ${1:-all} in
+    tests) tests "${2:-}" ;;
+    mysql) mysql ;;
+    static) static ;;
+    all)
+        failed=0
+        static || failed=1
+        mysql || failed=1
+        tests || failed=1
+        exit $failed
+        ;;
+    *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' && exit 1 ;;
+esac

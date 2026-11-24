@@ -841,6 +841,16 @@ ZATCA_MYSQL=1 vendor/bin/pest --group=mysql      # parallel processes issuing fo
 ZATCA_LIVE=1 vendor/bin/pest --group=sandbox     # onboarding, issuing and submitting in the ZATCA sandbox
 ```
 
+Before pushing, `bin/ci` runs the GitHub Actions checks in Docker: the whole PHP × Laravel matrix with fresh
+dependencies (prefer-lowest and prefer-stable), the MySQL test and PHPStan with Pint. It tests your working tree as
+git sees it, uncommitted changes included and ignored files left out. Logs go to `build/ci/`. Only the Windows jobs
+cannot run this way.
+
+```bash
+bin/ci                     # everything: about 2 minutes, the first run builds images for longer
+bin/ci tests php8.5        # matrix jobs matching a regex; also: bin/ci mysql, bin/ci static
+```
+
 ## Upgrading from 1.x
 
 2.x is a rewrite on top of zatca-api v3 and php-zatca-xml v4. Credentials and the invoice chain now live in the
