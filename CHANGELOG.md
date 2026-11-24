@@ -38,10 +38,6 @@ A rewrite on top of zatca-api v3 and php-zatca-xml v4, centred on EGS units stor
 - `zatca:generate-csr`, `zatca:compliance-certificate`, `zatca:production-certificate` (replaced by `zatca:onboard`),
   `Http::zatca()`, the translations of the command prompts.
 
-### Fixed
-
-- Commands no longer call `Command::fail()`, which does not exist in Laravel 10.
-
 ## v1.1.0 - 2025-08-18
 
 **Full Changelog**: https://github.com/sevaske/zatca/compare/v1.0.2...v1.1.0

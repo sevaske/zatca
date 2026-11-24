@@ -58,6 +58,14 @@ composer require sevaske/zatca
 php artisan zatca:install
 ```
 
+While 2.0 is a release candidate, require php-zatca-xml along with it: it is a release candidate too, and Composer
+does not take stability flags from a package's own requirements. Or set `"minimum-stability": "rc"` with
+`"prefer-stable": true` in your `composer.json`.
+
+```bash
+composer require sevaske/zatca:^2.0@rc sevaske/php-zatca-xml:^4.0@rc
+```
+
 `zatca:install` publishes `config/zatca.php` and the migration and offers to run it. To do it by hand:
 
 ```bash
