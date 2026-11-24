@@ -47,6 +47,12 @@ The package builds on two framework-agnostic libraries:
 Requirements: PHP 8.1+ with `dom`, `libxml`, `openssl` and `mbstring`; Laravel 10 to 13. Concurrent issuing needs a
 database with row locks: MySQL, MariaDB, PostgreSQL or SQL Server. SQLite works for a single process.
 
+Laravel 10 and 11 no longer receive security fixes, and every release of them has open security advisories.
+Recent Composer versions refuse to install such packages, so on these versions Composer may stop with "affected by
+security advisories". Its message names the setting that allows them (in Composer 2.11:
+`composer config policy.advisories.block false`, or ignore the listed advisory IDs). Upgrading Laravel is the better
+fix.
+
 ```bash
 composer require sevaske/zatca
 php artisan zatca:install

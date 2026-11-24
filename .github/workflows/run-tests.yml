@@ -62,6 +62,12 @@ jobs:
           echo "::add-matcher::${{ runner.tool_cache }}/php.json"
           echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
 
+      # every Laravel 10 and 11 release has unfixed security advisories (no more security fixes);
+      # recent Composer refuses to install them unless told otherwise
+      - name: Allow Laravel versions past their security support
+        if: matrix.laravel == '10.*' || matrix.laravel == '11.*'
+        run: composer config --global policy.advisories.block false
+
       - name: Install dependencies
         run: |
           composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
