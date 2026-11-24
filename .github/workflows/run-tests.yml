@@ -34,7 +34,10 @@ jobs:
           - laravel: 10.*
             testbench: 8.*
         exclude:
-          # Laravel 11/12 require PHP 8.2, Laravel 13 requires PHP 8.3
+          # Laravel 11/12 require PHP 8.2, Laravel 13 requires PHP 8.3; Laravel 10's
+          # test stack (testbench 8, Pest 2) does not install on PHP 8.5
+          - laravel: 10.*
+            php: 8.5
           - laravel: 13.*
             php: 8.2
           - laravel: 13.*
