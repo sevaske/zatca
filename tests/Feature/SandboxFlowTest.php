@@ -41,4 +41,4 @@ it('onboards a unit, issues and submits documents in the sandbox', function () {
 
     expect($unit->fresh()->last_icv)->toBe(2)
         ->and($unit->documents()->where('status', DocumentStatus::Cleared)->exists())->toBeTrue();
-})->group('sandbox')->skip(fn () => ! getenv('ZATCA_LIVE'), 'set ZATCA_LIVE=1 to run against the ZATCA sandbox');
+})->group('sandbox')->skip(! getenv('ZATCA_LIVE'), 'set ZATCA_LIVE=1 to run against the ZATCA sandbox');

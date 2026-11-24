@@ -15,6 +15,11 @@ use Sevaske\ZatcaApi\Invoice\InvoiceXml;
  * Connection: DB_HOST (127.0.0.1), DB_PORT (3306), DB_USERNAME (root), DB_PASSWORD (empty); database zatca_test.
  */
 beforeEach(function () {
+    // here, not in skip(): Pest runs beforeEach before it evaluates skip()
+    if (! getenv('ZATCA_MYSQL') || ! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('set ZATCA_MYSQL=1 to run against MySQL');
+    }
+
     $connection = [
         'driver' => 'mysql',
         'prefix' => '',
@@ -84,4 +89,4 @@ it('gives concurrent workers consecutive counters and an unbroken chain', functi
 
     // the XML comes back byte for byte: its hash is still the one computed at signing
     $documents->each(fn (Document $document) => expect(InvoiceXml::hash($document->xml))->toBe($document->hash));
-})->group('mysql')->skip(fn () => ! getenv('ZATCA_MYSQL') || ! function_exists('pcntl_fork'), 'set ZATCA_MYSQL=1 to run against MySQL');
+})->group('mysql');
